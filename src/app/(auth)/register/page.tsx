@@ -11,6 +11,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/**
+ * Rendered per request rather than prerendered.
+ *
+ * The municipality list comes from the database, so prerendering this page at
+ * build time makes the build itself depend on database connectivity — a clean
+ * CI build fails outright when the database is unreachable, and managed
+ * Postgres (Neon's free tier included) sleeps when idle. The query underneath
+ * is cached for an hour by `unstable_cache`, so per-request rendering costs
+ * effectively nothing.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function RegisterPage() {
   const municipalities = await getMunicipalities();
 
