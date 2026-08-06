@@ -1,11 +1,56 @@
 # Deployment
 
-> **Seeing "Diçka shkoi keq" on a fresh deployment?**
-> Open `/api/health` on the deployed URL. It lists exactly which environment
-> variables are missing and whether the database answers. A brand-new Vercel
-> project has none of them set, so `DATABASE_URL` and `AUTH_SECRET` are almost
-> always the answer — the app builds fine without them and only fails at
-> request time.
+## Quick start (about 3 minutes, no terminal)
+
+The build initialises the database itself — it applies migrations and seeds the
+38 municipalities, categories, roles and badges on every deploy. You do not run
+any commands locally.
+
+1. **Import the repo** at [vercel.com/new](https://vercel.com/new).
+2. **Vercel → Storage → Create Database → Neon.** Free; it sets `DATABASE_URL`
+   for you. (`DIRECT_DATABASE_URL` is optional — the setup script falls back to
+   `DATABASE_URL` when it is absent.)
+3. **Settings → Environment Variables**, add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `AUTH_SECRET` | `openssl rand -base64 32` |
+   | `SEED_ADMIN_EMAIL` | your email — creates the admin account |
+   | `SEED_ADMIN_PASSWORD` | a strong password (change it after first login) |
+   | `NEXT_PUBLIC_APP_URL` | your Vercel URL |
+   | `NEXT_PUBLIC_ADS_WHATSAPP` | your WhatsApp number, digits only |
+
+4. **Redeploy**, then open `/api/health`. `"status": "ok"` means you are live.
+
+That is the whole setup. Everything below is detail for when you want more
+control — a first deploy needs none of it.
+
+> A first deploy without any variables still **builds and goes live**; the pages
+> then explain what is missing rather than the build failing. Check
+> `/api/health` any time something looks wrong.
+
+---
+
+## How the automatic setup behaves
+
+`npm run build` runs `scripts/deploy-setup.mjs` before `next build`:
+
+| Situation | What happens |
+| --- | --- |
+| No `DATABASE_URL` | Logs what is missing, build succeeds, site explains itself |
+| Empty database | Creates all 22 tables, seeds reference data |
+| Already set up | Migrations skipped (tracked), seed upserts — nothing duplicates |
+| `SEED_ADMIN_*` set | Creates or updates the admin account |
+| Database unreachable | Build **fails** loudly rather than shipping a broken schema |
+
+Set `SKIP_DB_SETUP=true` once you would rather apply migrations deliberately —
+sensible when the platform has real traffic and a schema change needs a
+maintenance window.
+
+Demo reports are never created automatically; that still requires
+`SEED_DEMO=true`.
+
+---
 
 Target stack: **Vercel** (app) + **Neon** (PostgreSQL) + **Cloudflare R2** (images).
 All three have free tiers sufficient to launch; nothing here requires a paid plan.

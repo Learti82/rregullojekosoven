@@ -280,7 +280,17 @@ and accessibility basics.
 
 ## Deployment
 
-See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the Vercel + Neon + R2 walkthrough.
+Deploying is intentionally hands-off: `npm run build` runs
+`scripts/deploy-setup.mjs`, which applies migrations and seeds reference data,
+so a deployment initialises its own database. Import the repo on Vercel, add a
+Neon database from **Storage → Create Database**, set `AUTH_SECRET`, redeploy.
+No migrate or seed commands run by hand.
+
+It is safe on every deploy — migrations are tracked and the seed upserts. Set
+`SKIP_DB_SETUP=true` to take manual control once the platform carries real
+traffic.
+
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full walkthrough.
 
 The app builds without a database on purpose, so a first deploy always succeeds
 and then fails at request time if it is unconfigured. `GET /api/health` says
