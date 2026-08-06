@@ -12,7 +12,21 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const SEED_DEMO = process.env.SEED_DEMO === "true";
+/**
+ * Sample content is for local development and demos only.
+ *
+ * It is refused outright against a production environment: fabricated reports
+ * attributed to invented citizens would be indistinguishable from real civic
+ * complaints once published, and there is no honest way to present them.
+ * ALLOW_DEMO_IN_PRODUCTION exists only so a deliberate staging environment can
+ * opt in.
+ */
+const IS_PRODUCTION =
+  process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+
+const DEMO_REQUESTED = process.env.SEED_DEMO === "true";
+const SEED_DEMO =
+  DEMO_REQUESTED && (!IS_PRODUCTION || process.env.ALLOW_DEMO_IN_PRODUCTION === "true");
 const BCRYPT_ROUNDS = 12;
 
 function slugify(input: string): string {
@@ -661,6 +675,11 @@ async function main() {
     const users = await seedDemoUsers();
     await seedDemoReports(users);
     console.log("\n   Fjalëkalimi i llogarive demo: Demo1234");
+  } else if (DEMO_REQUESTED) {
+    console.log(
+      "\n→ SEED_DEMO u injorua: përmbajtja demo nuk krijohet në prodhim.\n" +
+        "   (Vendosni ALLOW_DEMO_IN_PRODUCTION=true vetëm për një mjedis testues.)"
+    );
   } else {
     console.log("\n→ Përmbajtja demo u anashkalua. Përdorni SEED_DEMO=true për ta aktivizuar.");
   }

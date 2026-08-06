@@ -100,7 +100,15 @@ these accounts (password `Demo1234`):
 | `admin@prishtina.shembull.com` | Municipality admin |
 
 The seed is idempotent — reference data upserts, demo reports are skipped if any
-report already exists — so it is safe to re-run against production.
+report already exists.
+
+**Sample content never reaches a deployment.** `SEED_DEMO` is refused when
+`VERCEL_ENV`/`NODE_ENV` is production, and `scripts/deploy-setup.mjs` deletes the
+variable before seeding, so a deployment cannot publish invented reports even if
+someone sets it in the hosting dashboard. A production database contains only
+what the app cannot run without — 4 roles, 38 municipalities, 8 categories and 7
+badge definitions — and zero reports, users, comments or votes until real people
+create them.
 
 ### Without object storage
 

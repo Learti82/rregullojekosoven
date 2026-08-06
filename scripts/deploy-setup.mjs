@@ -63,8 +63,15 @@ function run(command, label) {
 
 try {
   run("npx prisma migrate deploy", "Applying migrations…");
-  // Reference data only. Demo reports still require SEED_DEMO=true explicitly,
-  // so production never gets sample content by accident.
+
+  // Reference data only, never sample content. SEED_DEMO is deleted rather than
+  // merely left unset: a deployment must not be able to publish invented
+  // reports and fake citizens onto a live civic platform, even if someone adds
+  // the variable to the hosting dashboard by mistake.
+  if (process.env.SEED_DEMO) {
+    log("SEED_DEMO is set — ignoring it. Deployments never create sample data.");
+    delete process.env.SEED_DEMO;
+  }
   run("npx tsx prisma/seed.ts", "Seeding reference data…");
   log("Database ready.");
 } catch (error) {

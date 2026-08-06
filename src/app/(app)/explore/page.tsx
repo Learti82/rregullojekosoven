@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Fragment, Suspense } from "react";
 import Link from "next/link";
-import { SearchX, Plus } from "lucide-react";
+import { Megaphone, SearchX, Plus } from "lucide-react";
 import { getCurrentUser } from "@/lib/permissions";
 import { getReports } from "@/server/queries/reports";
 import { getCategories, getMunicipalities } from "@/server/queries/taxonomy";
@@ -33,15 +33,26 @@ async function ReportGrid({ searchParams }: { searchParams: SearchParams }) {
   const [user, result] = await Promise.all([getCurrentUser(), getReports(filters)]);
 
   if (result.items.length === 0) {
+    // "Try removing filters" is wrong advice when none are applied — which is
+    // the case for every visitor before the first report is filed.
+    const hasFilters = Boolean(
+      filters.q || filters.municipality || filters.category || filters.status ||
+        filters.priority || (filters.range && filters.range !== "all")
+    );
+
     return (
       <EmptyState
-        icon={SearchX}
-        title="Asnjë raport nuk përputhet"
-        description="Provoni të hiqni disa filtra ose të kërkoni me fjalë të tjera."
+        icon={hasFilters ? SearchX : Megaphone}
+        title={hasFilters ? "Asnjë raport nuk përputhet" : "Ende asnjë raport i publikuar"}
+        description={
+          hasFilters
+            ? "Provoni të hiqni disa filtra ose të kërkoni me fjalë të tjera."
+            : "Platforma sapo ka nisur. Bëhuni i pari që raporton një problem në komunën tuaj."
+        }
         action={
           <Button asChild>
             <Link href="/reports/new">
-              <Plus /> Raporto një problem
+              <Plus /> {hasFilters ? "Raporto një problem" : "Raporto problemin e parë"}
             </Link>
           </Button>
         }
