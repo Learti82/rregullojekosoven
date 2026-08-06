@@ -1,0 +1,8 @@
+# Served dynamically by src/app/robots.ts — this file is a static fallback.
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /municipality
+Disallow: /settings
+Disallow: /notifications
+Disallow: /api

@@ -1,0 +1,195 @@
+# Deployment
+
+Target stack: **Vercel** (app) + **Neon** (PostgreSQL) + **Cloudflare R2** (images).
+All three have free tiers sufficient to launch; nothing here requires a paid plan.
+
+---
+
+## 1. Database — Neon
+
+1. Create a project at [neon.tech](https://neon.tech). Pick the region closest to
+   Kosovo — **AWS eu-central-1 (Frankfurt)** — so round-trips stay under ~30ms.
+2. From the dashboard, copy **two** connection strings:
+   - the **pooled** one (host contains `-pooler`) → `DATABASE_URL`
+   - the **direct** one → `DIRECT_DATABASE_URL`
+
+Serverless functions open many short-lived connections, so application queries
+must go through the pooler. Prisma Migrate needs a session-level connection and
+uses the direct URL — this is why the schema declares both.
+
+Apply the schema:
+
+```bash
+DATABASE_URL="<pooled>" DIRECT_DATABASE_URL="<direct>" npx prisma migrate deploy
+```
+
+Seed reference data (roles, all 38 municipalities, categories, badges) and create
+the first administrator:
+
+```bash
+DATABASE_URL="<pooled>" DIRECT_DATABASE_URL="<direct>" \
+SEED_ADMIN_EMAIL="admin@yourdomain.org" \
+SEED_ADMIN_PASSWORD="<a strong password>" \
+npm run db:seed
+```
+
+Leave `SEED_DEMO` unset in production. The seed is idempotent, so re-running it
+after adding a municipality is safe.
+
+> Neon's free tier suspends a database after inactivity; the first request then
+> pays a cold start of a few hundred milliseconds. Enable Neon's autoscaling or
+> upgrade if that matters for launch day.
+
+---
+
+## 2. Object storage — Cloudflare R2
+
+Optional. Without it the app runs, but photo upload is hidden behind a notice.
+
+1. Cloudflare dashboard → **R2** → create bucket `rregullokosoven`.
+2. **Settings → Public access**: enable the `r2.dev` subdomain, or connect a
+   custom domain (recommended for production). Copy that base URL →
+   `R2_PUBLIC_URL`.
+3. **Manage R2 API Tokens** → create a token with **Object Read & Write** scoped
+   to this bucket. Copy the access key id and secret.
+4. Set `R2_ACCOUNT_ID` (from the R2 overview page) and `R2_BUCKET_NAME`.
+
+Add a CORS policy so browsers may `PUT` directly to the pre-signed URL:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://your-domain.org"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["etag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Add `http://localhost:3000` to `AllowedOrigins` while developing.
+
+The server never receives image bytes: it validates type and size, mints a
+5-minute pre-signed `PUT` with a pinned `Content-Length` and a server-generated
+key, and the browser uploads straight to R2. That keeps large files off the
+function budget entirely.
+
+### UploadThing instead
+
+If you prefer UploadThing's free tier, reimplement the three exported functions
+in `src/lib/storage.ts` (`createPresignedUpload`, `deleteObjects`,
+`isOwnedStorageUrl`). Nothing else imports the storage SDK.
+
+---
+
+## 3. Application — Vercel
+
+1. Import the repository at [vercel.com/new](https://vercel.com/new). The
+   framework preset is detected automatically.
+2. Build command stays `npm run build` — it runs `prisma generate` first, which
+   is required because Vercel caches `node_modules` between builds and the
+   generated client would otherwise go stale.
+3. Add the environment variables below (Production **and** Preview):
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Neon **pooled** string |
+| `DIRECT_DATABASE_URL` | Neon **direct** string |
+| `AUTH_SECRET` | `openssl rand -base64 32` |
+| `NEXT_PUBLIC_APP_URL` | `https://your-domain.org` |
+| `RATE_LIMIT_SALT` | any long random string |
+| `R2_ACCOUNT_ID` … `R2_PUBLIC_URL` | from step 2 (optional) |
+
+4. Deploy, then add your custom domain under **Settings → Domains**.
+
+Set `NEXT_PUBLIC_APP_URL` to the real domain before launch — canonical URLs, Open
+Graph tags, the sitemap and share links are all built from it.
+
+### Migrations on deploy
+
+`prisma migrate deploy` is deliberately **not** part of the build: a failed
+migration would leave a half-deployed app, and Vercel builds can run
+concurrently. Run it as a deliberate step before promoting:
+
+```bash
+DATABASE_URL="<pooled>" DIRECT_DATABASE_URL="<direct>" npx prisma migrate deploy
+```
+
+Or wire it into a CI job gated on the migration succeeding.
+
+---
+
+## 4. Post-deploy checklist
+
+```bash
+curl -I https://your-domain.org                      # 200 + security headers
+curl -s https://your-domain.org/robots.txt
+curl -s https://your-domain.org/sitemap.xml | head
+curl -o /dev/null -w '%{http_code}\n' https://your-domain.org/reports/does-not-exist   # must be 404
+```
+
+- [ ] Sign in with the seeded admin, then **change its password**.
+- [ ] `/admin/municipalities` lists all 38 municipalities.
+- [ ] Promote real municipal staff at `/admin/users` and bind each to a municipality.
+- [ ] File a test report end to end, including a photo, and confirm it appears on `/map`.
+- [ ] Move that report through `VERIFIED → ASSIGNED → IN_PROGRESS → COMPLETED`
+      and confirm the reporter is notified at each step.
+- [ ] Submit the sitemap in Google Search Console.
+- [ ] Confirm the missing-report URL above returns **404**, not 200 — see the
+      `loading.tsx` warning in the README.
+
+---
+
+## 5. Operations
+
+**Rate limiting.** The default limiter is in-process. On a single server it is
+exact; on Vercel's serverless runtime each warm instance keeps its own counters,
+so the effective limit is per-instance. That bounds abuse but is not global. When
+traffic justifies it, implement `RateLimitStore` against Redis or a Postgres
+table and register it once at startup:
+
+```ts
+import { setRateLimitStore } from "@/lib/rate-limit";
+setRateLimitStore(mySharedStore);
+```
+
+No call site changes.
+
+**Backups.** Neon keeps point-in-time history on the free tier (retention varies).
+For an independent copy:
+
+```bash
+pg_dump "$DIRECT_DATABASE_URL" -Fc -f backup-$(date +%F).dump
+```
+
+**Audit trail.** `/admin/logs` shows sign-ins, status changes, role changes and
+bans. IPs are stored only as salted hashes. `activity_logs` grows without bound —
+schedule a periodic prune (e.g. delete rows older than a year) once the platform
+is busy.
+
+**Monitoring.** Vercel Analytics covers Web Vitals. Watch Neon's connection count;
+if it climbs, confirm the pooled URL is the one in `DATABASE_URL`.
+
+**Scaling notes.** The schema is indexed for national volume, and feed queries
+read denormalised counters rather than aggregating. The first things to watch as
+traffic grows: `/map` currently returns the 500 most recent matching markers —
+move to viewport-bounded queries when a single municipality routinely exceeds
+that; and `activity_logs` insert volume, which is the highest-write table.
+
+---
+
+## 6. Self-hosting
+
+Any Node 20+ host works:
+
+```bash
+npm ci
+npx prisma migrate deploy
+npm run build
+npm start                 # PORT=3000 by default
+```
+
+Put Nginx or Caddy in front for TLS. Behind a proxy, forward `X-Forwarded-For` —
+the rate limiter reads it to identify callers — and set `AUTH_URL` to the public
+origin so Auth.js builds correct callback URLs.
