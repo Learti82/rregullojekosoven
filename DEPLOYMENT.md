@@ -1,11 +1,28 @@
 # Deployment
 
+> **Seeing "Diçka shkoi keq" on a fresh deployment?**
+> Open `/api/health` on the deployed URL. It lists exactly which environment
+> variables are missing and whether the database answers. A brand-new Vercel
+> project has none of them set, so `DATABASE_URL` and `AUTH_SECRET` are almost
+> always the answer — the app builds fine without them and only fails at
+> request time.
+
 Target stack: **Vercel** (app) + **Neon** (PostgreSQL) + **Cloudflare R2** (images).
 All three have free tiers sufficient to launch; nothing here requires a paid plan.
 
 ---
 
 ## 1. Database — Neon
+
+**Fastest path if you already deploy on Vercel:** in the project, go to
+**Storage → Create Database → Neon**. Vercel provisions a free Neon database and
+injects `DATABASE_URL` automatically. It also sets an unpooled variant (named
+`DATABASE_URL_UNPOOLED` or `POSTGRES_URL_NON_POOLING` depending on the
+integration version) — copy that value into a variable named
+`DIRECT_DATABASE_URL`, which is what `prisma migrate` uses. You still need to set
+`AUTH_SECRET` yourself.
+
+Otherwise, set it up directly:
 
 1. Create a project at [neon.tech](https://neon.tech). Pick the region closest to
    Kosovo — **AWS eu-central-1 (Frankfurt)** — so round-trips stay under ~30ms.
@@ -125,6 +142,7 @@ Or wire it into a CI job gated on the migration succeeding.
 ## 4. Post-deploy checklist
 
 ```bash
+curl -s https://your-domain.org/api/health           # {"status":"ok",...} — check this first
 curl -I https://your-domain.org                      # 200 + security headers
 curl -s https://your-domain.org/robots.txt
 curl -s https://your-domain.org/sitemap.xml | head
@@ -171,6 +189,10 @@ pg_dump "$DIRECT_DATABASE_URL" -Fc -f backup-$(date +%F).dump
 bans. IPs are stored only as salted hashes. `activity_logs` grows without bound —
 schedule a periodic prune (e.g. delete rows older than a year) once the platform
 is busy.
+
+**Health check.** `GET /api/health` reports which environment variables are set
+(presence only — never values) and whether the database answers, returning 503
+when something required is missing. Point an uptime monitor at it.
 
 **Monitoring.** Vercel Analytics covers Web Vitals. Watch Neon's connection count;
 if it climbs, confirm the pooled URL is the one in `DATABASE_URL`.

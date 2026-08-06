@@ -282,6 +282,21 @@ and accessibility basics.
 
 See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the Vercel + Neon + R2 walkthrough.
 
+The app builds without a database on purpose, so a first deploy always succeeds
+and then fails at request time if it is unconfigured. `GET /api/health` says
+exactly what is missing:
+
+```json
+{
+  "status": "misconfigured",
+  "database": { "connected": false, "error": "DATABASE_URL is not set." },
+  "hints": ["Set DATABASE_URL and AUTH_SECRET in your hosting provider's environment variables, then redeploy."]
+}
+```
+
+It reports presence only, never values, and returns 503 while anything required
+is missing — so it doubles as an uptime probe.
+
 ## Future AI
 
 `src/lib/ai/classifier.ts` is the single seam for category suggestion, priority
