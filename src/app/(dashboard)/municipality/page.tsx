@@ -59,8 +59,20 @@ export default async function MunicipalityDashboardPage() {
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
+          {/*
+            The municipality name is shown on its own rather than in a
+            "Komuna e X" phrase: Albanian puts the place name in the genitive
+            there (Prishtinë -> Prishtinës, Prizren -> Prizrenit, Ferizaj ->
+            Ferizajt), and the form differs per name. Interpolating the
+            nominative would be visibly wrong to every user.
+          */}
+          {municipality ? (
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Komuna
+            </p>
+          ) : null}
           <h1 className="font-display text-3xl font-bold tracking-tight">
-            {municipality ? `Komuna e ${municipality.name}` : "Të gjitha komunat"}
+            {municipality ? municipality.name : "Të gjitha komunat"}
           </h1>
           <p className="mt-1.5 text-muted-foreground">
             Përmbledhje e problemeve të raportuara dhe performancës së zgjidhjes.

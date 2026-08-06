@@ -360,7 +360,9 @@ export default async function ReportDetailPage({ params }: Props) {
                 className="flex items-center gap-2 text-sm hover:text-primary"
               >
                 <Building2 className="size-4 text-muted-foreground" aria-hidden />
-                Komuna e {report.municipality.name}
+                {/* Label + name, avoiding the genitive form the phrase would need. */}
+                <span className="text-muted-foreground">Komuna:</span>{" "}
+                {report.municipality.name}
               </Link>
             </CardContent>
           </Card>
