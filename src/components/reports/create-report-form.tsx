@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FieldError, FormMessage } from "@/components/ui/form-error";
 import { ImageUploader } from "@/components/uploads/image-uploader";
 import { LocationPicker } from "@/components/map/dynamic-map";
-import type { PickedLocation } from "@/components/map/location-picker";
+import type { PickedLocation } from "@/types";
 
 type Option = { id: string; name: string; slug: string; color?: string; description?: string | null };
 

@@ -10,7 +10,9 @@ import { cn, isInsideKosovo } from "@/lib/utils";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import { Button } from "@/components/ui/button";
 
-export type PickedLocation = { lat: number; lng: number };
+import type { PickedLocation } from "@/types";
+
+export type { PickedLocation };
 
 const pinIcon = L.divIcon({
   className: "!bg-transparent !border-0",

@@ -10,6 +10,10 @@ import "leaflet.markercluster";
 import { KOSOVO_CENTER, KOSOVO_DEFAULT_ZOOM, REPORT_STATUS_META } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { MapMarker } from "@/types";
+import {
+  MunicipalityBoundaries,
+  type BoundaryStats,
+} from "@/components/map/municipality-boundaries";
 
 /**
  * Clustered report map.
@@ -146,12 +150,21 @@ export function ReportsMap({
   zoom,
   className,
   onSelect,
+  showBoundaries = false,
+  boundaryStats,
+  highlightMunicipality,
+  onMunicipalitySelect,
 }: {
   markers: MapMarker[];
   center?: [number, number];
   zoom?: number;
   className?: string;
   onSelect?: (marker: MapMarker) => void;
+  /** Draw the 38 municipality outlines (data is fetched only when true). */
+  showBoundaries?: boolean;
+  boundaryStats?: BoundaryStats;
+  highlightMunicipality?: string | null;
+  onMunicipalitySelect?: (slug: string, name: string) => void;
 }) {
   return (
     <MapContainer
@@ -172,6 +185,12 @@ export function ReportsMap({
         maxZoom={19}
       />
       <MapFocus center={center} zoom={zoom} />
+      <MunicipalityBoundaries
+        visible={showBoundaries}
+        stats={boundaryStats}
+        highlightSlug={highlightMunicipality}
+        onSelect={onMunicipalitySelect}
+      />
       <ClusterLayer markers={markers} onSelect={onSelect} />
     </MapContainer>
   );

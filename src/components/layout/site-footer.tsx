@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { APP_DESCRIPTION } from "@/lib/constants";
+import { AdSlot, AdvertiseWithUs } from "@/components/ads/ad-slot";
 
 const SECTIONS = [
   {
@@ -34,12 +35,15 @@ export function SiteFooter() {
   return (
     <footer className="border-t bg-muted/30 no-print">
       <div className="container py-12">
+        <AdSlot id="footer-banner" className="mb-10" />
+
         <div className="grid gap-10 md:grid-cols-[1.5fr_repeat(3,1fr)]">
           <div>
             <Logo />
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
               {APP_DESCRIPTION}
             </p>
+            <AdvertiseWithUs className="mt-5 max-w-xs" />
           </div>
 
           {SECTIONS.map((section) => (

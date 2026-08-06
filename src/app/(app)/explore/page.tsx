@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import { Fragment, Suspense } from "react";
 import Link from "next/link";
 import { SearchX, Plus } from "lucide-react";
 import { getCurrentUser } from "@/lib/permissions";
@@ -13,6 +13,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReportCard, ReportCardSkeleton } from "@/components/reports/report-card";
 import { ReportFilters } from "@/components/reports/report-filters";
+import { AdSlot } from "@/components/ads/ad-slot";
 
 export const metadata: Metadata = {
   title: "Eksploro raportet",
@@ -56,12 +57,14 @@ async function ReportGrid({ searchParams }: { searchParams: SearchParams }) {
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {result.items.map((report, index) => (
-          <ReportCard
-            key={report.id}
-            report={report}
-            isAuthenticated={Boolean(user)}
-            priority={index < 3}
-          />
+          <Fragment key={report.id}>
+            <ReportCard
+              report={report}
+              isAuthenticated={Boolean(user)}
+              priority={index < 3}
+            />
+            {index === 4 ? <AdSlot id="explore-inline" /> : null}
+          </Fragment>
         ))}
       </div>
 

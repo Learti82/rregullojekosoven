@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ReportCard } from "@/components/reports/report-card";
 import { FadeIn } from "@/components/marketing/fade-in";
+import { AdSlot } from "@/components/ads/ad-slot";
 
 export const metadata: Metadata = {
   title: `${APP_NAME} — ${APP_TAGLINE}`,
@@ -138,6 +139,8 @@ export default async function LandingPage() {
               ))}
             </dl>
           </FadeIn>
+
+          <AdSlot id="home-hero" className="mx-auto mt-12 max-w-4xl" />
         </div>
       </section>
 

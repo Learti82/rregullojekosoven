@@ -32,6 +32,7 @@ services.
 | Data | Prisma 6 + PostgreSQL (Neon free tier) | |
 | Auth | Auth.js v5 (credentials, JWT sessions) | |
 | Maps | Leaflet + marker clustering, OpenStreetMap tiles | No API key, no billing |
+| Boundaries | geoBoundaries XKX ADM2 GeoJSON, simplified in-repo | Real administrative outlines for all 38 municipalities |
 | Files | Cloudflare R2 via pre-signed PUT URLs | Free tier; binaries never touch the server |
 | Charts | Recharts | |
 | Tests | Vitest + Testing Library; Playwright script for E2E | |
@@ -133,6 +134,64 @@ used to build the status dropdown, and re-checked in
 Every change writes a `status_history` row with author, timestamp and note, and
 notifies the reporter plus everyone following.
 
+## Municipality boundaries
+
+The map can overlay the real administrative boundaries of all 38 municipalities,
+shaded by how many problems are still open there.
+
+Source data is [geoBoundaries](https://www.geoboundaries.org/) `XKX` ADM2 (derived
+from OpenStreetMap), via
+[Learti82/GeoJSON-Kosova](https://github.com/Learti82/GeoJSON-Kosova). The raw
+file is 2.6MB across ~105k coordinate points — far more detail than an outline
+needs at these zoom levels, and a heavy download on mobile. `scripts/build-boundaries.mjs`
+simplifies it:
+
+```bash
+node scripts/build-boundaries.mjs path/to/kosovo_38_municipalities.geojson
+# 104,880 -> 31,248 points (70% smaller), 2.6MB -> 0.59MB
+```
+
+Three source names differ from the platform's own list (`Gllogoc`→Drenas,
+`Mitrovicë e Jugut`→Mitrovicë, `Skënderaj`→Skenderaj). The script maps them
+explicitly and fails loudly on a slug collision, so a mismatch can't silently
+drop a municipality's outline. Each feature carries the matching `slug`, giving a
+1:1 join to the database with no runtime fuzzy matching.
+
+The overlay is off by default and the file is fetched only when the toggle is
+switched on, then cached in a module-level promise — toggling off and on again
+never refetches. Clicking a municipality filters the whole page to it.
+
+## Advertising slots
+
+Six placements (`src/lib/ads.ts`) let people and companies buy space. While a
+slot is unsold it renders as an invitation whose call-to-action opens WhatsApp
+with a message naming that exact slot, so the owner knows which space the sender
+means.
+
+Set the number once — digits only, international format:
+
+```bash
+NEXT_PUBLIC_ADS_WHATSAPP="38344123456"   # -> +383 44 123 456
+NEXT_PUBLIC_ADS_ENABLED="true"           # "false" hides every slot
+```
+
+With no number configured the slots still render but show a neutral
+"contact coming soon" instead of a broken `wa.me` link.
+
+To fill a slot with a real advertiser, add an entry to `BOOKED_SLOTS` in
+`src/lib/ads.ts`; the same component then renders the creative instead of the
+invitation. Ad links carry `rel="sponsored"`, and each slot is a labelled
+`<aside>` landmark so screen readers can skip it.
+
+| Slot | Where |
+| --- | --- |
+| `home-hero` | Landing page, under the stats |
+| `feed-inline` | Between report cards in the feed |
+| `explore-inline` | Among search results |
+| `report-sidebar` | Report page, right column |
+| `map-sidebar` | Map page side panel |
+| `footer-banner` | Above the footer, all public pages |
+
 ## Security
 
 - **Authorisation** is server-side on every action. Middleware only redirects; it
@@ -189,20 +248,29 @@ blocked.
 ## Testing
 
 ```bash
-npm test              # 62 unit tests (Vitest)
+npm test              # 73 unit tests (Vitest)
 npm run test:coverage
 npm run typecheck
 npm run lint
 ```
 
 Unit tests cover the authorization policy, all Zod schemas, the rate limiter, the
-AI heuristics and the formatting/geo utilities.
+AI heuristics, the WhatsApp link builder and the formatting/geo utilities.
+
+`tests/bundle-guards.test.ts` holds two structural guards for mistakes that build
+cleanly but break the running app — both have bitten this codebase:
+
+- no server-rendered module may value-import a Leaflet-backed file (doing so
+  crashes SSR and inflates the bundle),
+- no route calling `notFound()` may sit under a `loading.tsx` (which turns
+  missing pages into soft 404s).
 
 End-to-end (needs a running build and a seeded database):
 
 ```bash
 npm run build && npm start -- -p 3200 &
 node tests/e2e/verify.mjs      # 49 checks across all four roles
+node tests/e2e/features.mjs   # 28 checks on boundaries + ad slots
 node tests/e2e/workflow.mjs   # 8 checks on the municipal status workflow
 ```
 

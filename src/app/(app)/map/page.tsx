@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getMapMarkers } from "@/server/queries/reports";
 import { getCategories, getMunicipalities } from "@/server/queries/taxonomy";
+import { getMunicipalityReportStats } from "@/server/queries/stats";
 import { reportFiltersSchema } from "@/validations/report";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapExplorer } from "@/components/map/map-explorer";
@@ -20,14 +21,20 @@ async function MapData({ searchParams }: { searchParams: SearchParams }) {
   const parsed = reportFiltersSchema.safeParse(raw);
   const filters = parsed.success ? parsed.data : reportFiltersSchema.parse({});
 
-  const [markers, municipalities, categories] = await Promise.all([
+  const [markers, municipalities, categories, boundaryStats] = await Promise.all([
     getMapMarkers(filters),
     getMunicipalities(),
     getCategories(),
+    getMunicipalityReportStats(),
   ]);
 
   return (
-    <MapExplorer markers={markers} municipalities={municipalities} categories={categories} />
+    <MapExplorer
+      markers={markers}
+      municipalities={municipalities}
+      categories={categories}
+      boundaryStats={boundaryStats}
+    />
   );
 }
 

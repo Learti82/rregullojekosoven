@@ -320,7 +320,7 @@ export async function voteAction(input: {
           downvotes: { increment: downDelta },
           score: { increment: upDelta - downDelta },
         },
-        select: { score: true, upvotes: true, downvotes: true, slug: true },
+        select: { score: true, upvotes: true, downvotes: true },
       });
 
       if (upDelta !== 0) {
@@ -346,7 +346,11 @@ export async function voteAction(input: {
       await evaluateBadges(result.report.createdById);
     }
 
-    revalidatePath(`/reports/${result.updated.slug}`);
+    // Deliberately no revalidatePath: this action already returns the
+    // authoritative counters, and the client reconciles from them. Forcing an
+    // RSC refetch on every vote would re-run the whole page's queries, and on a
+    // page whose list sits inside a Suspense boundary it keeps the surrounding
+    // transition pending — which left the vote control disabled until reload.
     return ok({
       score: result.updated.score,
       upvotes: result.updated.upvotes,
@@ -377,7 +381,7 @@ export async function toggleFollowAction(
         const report = await tx.report.update({
           where: { id: reportId },
           data: { followersCount: { decrement: 1 } },
-          select: { followersCount: true, slug: true },
+          select: { followersCount: true },
         });
         return { following: false, ...report };
       }
@@ -386,12 +390,12 @@ export async function toggleFollowAction(
       const report = await tx.report.update({
         where: { id: reportId },
         data: { followersCount: { increment: 1 } },
-        select: { followersCount: true, slug: true },
+        select: { followersCount: true },
       });
       return { following: true, ...report };
     });
 
-    revalidatePath(`/reports/${result.slug}`);
+    // Same as voting: the authoritative count comes back in the response.
     return ok(
       { following: result.following, followersCount: result.followersCount },
       result.following ? "Po ndiqni këtë raport." : "Nuk po e ndiqni më këtë raport."

@@ -36,6 +36,7 @@ import { ReportCard } from "@/components/reports/report-card";
 import { CommentSection } from "@/components/comments/comment-section";
 import { ManagePanel } from "@/components/dashboard/manage-panel";
 import { SingleReportMap } from "@/components/map/dynamic-map";
+import { AdSlot } from "@/components/ads/ad-slot";
 
 /**
  * NOTE: this route must not gain a `loading.tsx` (here or in any ancestor
@@ -381,6 +382,8 @@ export default async function ReportDetailPage({ params }: Props) {
               ) : null}
             </CardContent>
           </Card>
+
+          <AdSlot id="report-sidebar" />
         </aside>
       </div>
 

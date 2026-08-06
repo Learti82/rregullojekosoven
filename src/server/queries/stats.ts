@@ -172,3 +172,34 @@ export async function getPlatformCounters() {
   ]);
   return { reports, users, municipalities, resolved };
 }
+
+/**
+ * Open/total report counts per municipality slug, used to shade the boundary
+ * overlay on the map. Two grouped queries rather than one per municipality.
+ */
+export async function getMunicipalityReportStats(): Promise<
+  Record<string, { total: number; open: number }>
+> {
+  const [municipalities, totals, open] = await Promise.all([
+    prisma.municipality.findMany({ select: { id: true, slug: true } }),
+    prisma.report.groupBy({ by: ["municipalityId"], _count: { _all: true } }),
+    prisma.report.groupBy({
+      by: ["municipalityId"],
+      where: { status: { in: ["PENDING", "VERIFIED", "ASSIGNED", "IN_PROGRESS"] } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const totalById = new Map(totals.map((row) => [row.municipalityId, row._count._all]));
+  const openById = new Map(open.map((row) => [row.municipalityId, row._count._all]));
+
+  return Object.fromEntries(
+    municipalities.map((municipality) => [
+      municipality.slug,
+      {
+        total: totalById.get(municipality.id) ?? 0,
+        open: openById.get(municipality.id) ?? 0,
+      },
+    ])
+  );
+}

@@ -165,21 +165,21 @@ export async function toggleCommentLikeAction(
         const comment = await tx.comment.update({
           where: { id: commentId },
           data: { likesCount: { decrement: 1 } },
-          select: { likesCount: true, report: { select: { slug: true } } },
+          select: { likesCount: true },
         });
-        return { liked: false, likesCount: comment.likesCount, slug: comment.report.slug };
+        return { liked: false, likesCount: comment.likesCount };
       }
 
       await tx.commentLike.create({ data: { commentId, userId: user.id } });
       const comment = await tx.comment.update({
         where: { id: commentId },
         data: { likesCount: { increment: 1 } },
-        select: { likesCount: true, report: { select: { slug: true } } },
+        select: { likesCount: true },
       });
-      return { liked: true, likesCount: comment.likesCount, slug: comment.report.slug };
+      return { liked: true, likesCount: comment.likesCount };
     });
 
-    revalidatePath(`/reports/${result.slug}`);
+    // The like count is returned to the caller, so no route refresh is needed.
     return ok({ liked: result.liked, likesCount: result.likesCount });
   } catch (error) {
     return toActionError(error);

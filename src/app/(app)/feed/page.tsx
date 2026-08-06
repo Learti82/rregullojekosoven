@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Fragment } from "react";
 import Link from "next/link";
 import { FileQuestion, Plus, Sparkles } from "lucide-react";
 import { getCurrentUser } from "@/lib/permissions";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { ReportCard } from "@/components/reports/report-card";
+import { AdSlot } from "@/components/ads/ad-slot";
 
 export const metadata: Metadata = {
   title: "Ballina",
@@ -86,12 +88,15 @@ export default async function FeedPage({
         <>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {feed.items.map((report, index) => (
-              <ReportCard
-                key={report.id}
-                report={report}
-                isAuthenticated={Boolean(user)}
-                priority={index < 3}
-              />
+              <Fragment key={report.id}>
+                <ReportCard
+                  report={report}
+                  isAuthenticated={Boolean(user)}
+                  priority={index < 3}
+                />
+                {/* Sits in the natural scroll rhythm rather than interrupting the top. */}
+                {index === 2 ? <AdSlot id="feed-inline" /> : null}
+              </Fragment>
             ))}
           </div>
 

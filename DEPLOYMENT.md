@@ -100,6 +100,8 @@ in `src/lib/storage.ts` (`createPresignedUpload`, `deleteObjects`,
 | `NEXT_PUBLIC_APP_URL` | `https://your-domain.org` |
 | `RATE_LIMIT_SALT` | any long random string |
 | `R2_ACCOUNT_ID` … `R2_PUBLIC_URL` | from step 2 (optional) |
+| `NEXT_PUBLIC_ADS_WHATSAPP` | WhatsApp number for ad enquiries, digits only (e.g. `38344123456`) |
+| `NEXT_PUBLIC_ADS_ENABLED` | `true`, or `false` to hide every ad slot |
 
 4. Deploy, then add your custom domain under **Settings → Domains**.
 
@@ -135,6 +137,8 @@ curl -o /dev/null -w '%{http_code}\n' https://your-domain.org/reports/does-not-e
 - [ ] File a test report end to end, including a photo, and confirm it appears on `/map`.
 - [ ] Move that report through `VERIFIED → ASSIGNED → IN_PROGRESS → COMPLETED`
       and confirm the reporter is notified at each step.
+- [ ] Click an ad slot and confirm WhatsApp opens to the right number.
+- [ ] Toggle municipality boundaries on the map and confirm all 38 outlines draw.
 - [ ] Submit the sitemap in Google Search Console.
 - [ ] Confirm the missing-report URL above returns **404**, not 200 — see the
       `loading.tsx` warning in the README.

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useSearchParams } from "next/navigation";
-import { MapPinOff } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Layers, MapPinOff } from "lucide-react";
 import type { MapMarker } from "@/types";
 import { formatNumber } from "@/lib/utils";
 import { ReportsMap } from "@/components/map/dynamic-map";
@@ -11,6 +11,10 @@ import { ReportFilters } from "@/components/reports/report-filters";
 import { MarkerSummary } from "@/components/map/marker-summary";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { BoundaryLegend } from "@/components/map/boundary-legend";
+import { AdSlot } from "@/components/ads/ad-slot";
 
 type Option = { id: string; name: string; slug: string; latitude?: number; longitude?: number; zoom?: number };
 
@@ -22,13 +26,32 @@ export function MapExplorer({
   markers,
   municipalities,
   categories,
+  boundaryStats,
 }: {
   markers: MapMarker[];
   municipalities: Option[];
   categories: Option[];
+  boundaryStats: Record<string, { total: number; open: number }>;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selected, setSelected] = React.useState<MapMarker | null>(null);
+  const [showBoundaries, setShowBoundaries] = React.useState(false);
+
+  const activeMunicipality = searchParams.get("municipality");
+
+  /** Clicking a boundary filters the whole page to that municipality. */
+  const selectMunicipality = React.useCallback(
+    (slug: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (params.get("municipality") === slug) params.delete("municipality");
+      else params.set("municipality", slug);
+      params.delete("page");
+      router.push(params.toString() ? `${pathname}?${params}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   // Centre on the filtered municipality when one is selected.
   const focus = React.useMemo<{ center?: [number, number]; zoom?: number }>(() => {
@@ -42,6 +65,17 @@ export function MapExplorer({
   return (
     <div className="space-y-4">
       <ReportFilters municipalities={municipalities} categories={categories} showSort={false} />
+
+      <div className="flex items-center gap-2.5 rounded-xl border bg-card px-4 py-2.5">
+        <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <Label htmlFor="boundaries" className="flex-1 cursor-pointer text-sm font-normal">
+          Kufijtë e komunave
+          <span className="ml-2 text-xs text-muted-foreground">
+            ngjyrosur sipas problemeve të hapura
+          </span>
+        </Label>
+        <Switch id="boundaries" checked={showBoundaries} onCheckedChange={setShowBoundaries} />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="relative h-[60vh] overflow-hidden rounded-xl border lg:h-[72vh]">
@@ -58,10 +92,21 @@ export function MapExplorer({
               center={focus.center}
               zoom={focus.zoom}
               onSelect={setSelected}
+              showBoundaries={showBoundaries}
+              boundaryStats={boundaryStats}
+              highlightMunicipality={activeMunicipality}
+              onMunicipalitySelect={selectMunicipality}
             />
           )}
 
           <MapLegend className="absolute bottom-4 right-4 z-[400] w-40" />
+
+          {showBoundaries ? (
+            <div className="absolute bottom-4 left-4 z-[400] w-44 rounded-xl border bg-background/95 p-3 shadow-elevated backdrop-blur">
+              <p className="mb-2 text-xs font-semibold">Problemet e hapura</p>
+              <BoundaryLegend />
+            </div>
+          ) : null}
         </div>
 
         <aside className="flex flex-col gap-3">
@@ -87,6 +132,8 @@ export function MapExplorer({
               <MarkerSummary marker={selected} />
             </div>
           ) : null}
+
+          <AdSlot id="map-sidebar" />
 
           <div className="min-h-0 flex-1 rounded-xl border bg-card">
             <h2 className="border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

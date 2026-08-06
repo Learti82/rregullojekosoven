@@ -104,3 +104,12 @@ export type TrendPoint = {
   created: number;
   completed: number;
 };
+
+/**
+ * A coordinate chosen in the report composer's map picker.
+ *
+ * Declared here rather than beside the picker component so consumers never need
+ * to import from a Leaflet-backed module — even for a type. A stray value
+ * import from there pulls Leaflet into a server-rendered bundle.
+ */
+export type PickedLocation = { lat: number; lng: number };
