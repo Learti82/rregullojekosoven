@@ -3,6 +3,18 @@ import { absoluteUrl } from "@/lib/utils";
 import { getAllReportSlugs } from "@/server/queries/reports";
 import { getMunicipalities, getCategories } from "@/server/queries/taxonomy";
 
+/**
+ * Generated on request and cached for an hour, rather than at build time.
+ *
+ * As a build-time route this reached for the database during `next build`. On a
+ * fresh deployment — or whenever a managed database is asleep or briefly
+ * unreachable — the query failed, the catch below swallowed it, and the
+ * deployment silently shipped a sitemap containing only the static routes, with
+ * every report URL missing until the next build. Rendering per request means a
+ * transient failure costs one cached response, not a whole deploy cycle, and
+ * newly published reports appear within the hour instead of at the next build.
+ */
+export const dynamic = "force-dynamic";
 export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

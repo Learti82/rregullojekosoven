@@ -205,7 +205,27 @@ that; and `activity_logs` insert volume, which is the highest-write table.
 
 ---
 
-## 6. Self-hosting
+## 6. Build-log notes
+
+A clean deployment log should be free of these. If you see them:
+
+**`[sitemap] Error: DATABASE_URL is not set`** — the sitemap now renders per
+request, so this no longer appears during the build. At runtime it means exactly
+what it says: the variable is unset. Check `/api/health`.
+
+**`Detected "engines": { "node": ">=20.0.0" } ... will automatically upgrade`** —
+fixed by pinning `engines.node` to `22.x`. An open-ended range lets the platform
+jump to the next Node major the day it ships, which can break a build with no
+change on your side.
+
+**`package.json#prisma is deprecated`** — fixed by moving that config to
+`prisma.config.ts`, which Prisma 7 will require. Because a config file does not
+auto-load `.env`, that file loads it explicitly so local `prisma migrate` and
+`db:seed` keep working.
+
+---
+
+## 7. Self-hosting
 
 Any Node 20+ host works:
 
