@@ -91,67 +91,108 @@ export function MunicipalityBoundaries({
     return Object.values(stats).reduce((max, entry) => Math.max(max, entry.open), 0);
   }, [stats]);
 
+  /**
+   * Latest style inputs and callback, held in refs.
+   *
+   * Putting these in the effect's dependency list rebuilt all 38 polygons on
+   * every parent render — `stats` arrives as a fresh object each time — and a
+   * click landing during a rebuild was silently dropped, because the layer
+   * carrying the handler had already been removed. Refs keep the layer stable
+   * and always let it read current values.
+   */
+  const styleRef = React.useRef({ stats, maxOpen, highlightSlug });
+  const onSelectRef = React.useRef(onSelect);
+  styleRef.current = { stats, maxOpen, highlightSlug };
+  onSelectRef.current = onSelect;
+
+  const styleFor = React.useCallback((slug: string): L.PathOptions => {
+    const { stats: s, maxOpen: max, highlightSlug: highlight } = styleRef.current;
+    const fill = fillFor(s?.[slug]?.open ?? 0, max);
+    const isHighlighted = highlight === slug;
+    return {
+      color: isHighlighted ? "#1E4FD8" : "#64748b",
+      weight: isHighlighted ? 3 : 1,
+      opacity: isHighlighted ? 0.95 : 0.55,
+      fillColor: fill.color,
+      fillOpacity: isHighlighted ? Math.min(0.5, fill.opacity + 0.12) : fill.opacity,
+      interactive: true,
+    };
+  }, []);
+
+  // Build the layer once per dataset, never on a style change.
   React.useEffect(() => {
     if (!data) return;
 
-    // Rebuild on any style-affecting change; the layer is cheap next to a refetch.
-    layerRef.current?.remove();
-
     const layer = L.geoJSON(data as unknown as GeoJSON.GeoJsonObject, {
-      style: (feature) => {
-        const slug = (feature?.properties as BoundaryFeature["properties"])?.slug;
-        const entry = stats?.[slug];
-        const fill = fillFor(entry?.open ?? 0, maxOpen);
-        const isHighlighted = highlightSlug === slug;
-
-        return {
-          color: isHighlighted ? "#1E4FD8" : "#64748b",
-          weight: isHighlighted ? 3 : 1,
-          opacity: isHighlighted ? 0.95 : 0.55,
-          fillColor: fill.color,
-          fillOpacity: isHighlighted ? Math.min(0.5, fill.opacity + 0.12) : fill.opacity,
-          // Without this the polygons swallow marker clicks.
-          interactive: true,
-        };
-      },
+      style: (feature) =>
+        styleFor((feature?.properties as BoundaryFeature["properties"])?.slug ?? ""),
       onEachFeature: (feature, featureLayer) => {
         const props = feature.properties as BoundaryFeature["properties"];
-        const entry = stats?.[props.slug];
-
-        featureLayer.bindTooltip(
-          entry
-            ? `<strong>${escapeHtml(props.name)}</strong><br/>${entry.open} të hapura · ${entry.total} gjithsej`
-            : `<strong>${escapeHtml(props.name)}</strong>`,
-          { sticky: true, direction: "top", opacity: 0.95 }
-        );
 
         featureLayer.on({
           mouseover: (event) => {
             (event.target as L.Path).setStyle({ weight: 2.5, opacity: 0.9 });
           },
           mouseout: (event) => {
-            const isHighlighted = highlightSlug === props.slug;
-            (event.target as L.Path).setStyle({
-              weight: isHighlighted ? 3 : 1,
-              opacity: isHighlighted ? 0.95 : 0.55,
-            });
+            (event.target as L.Path).setStyle(styleFor(props.slug));
           },
-          click: () => onSelect?.(props.slug, props.name),
+          click: () => onSelectRef.current?.(props.slug, props.name),
         });
       },
     });
 
+    layerRef.current = layer;
+    return () => {
+      layer.remove();
+      layerRef.current = null;
+    };
+  }, [data, styleFor]);
+
+  // Attach/detach without rebuilding.
+  React.useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
     if (visible) {
       layer.addTo(map);
       // Keep outlines under the markers so pins stay clickable.
       layer.bringToBack();
-    }
-    layerRef.current = layer;
-
-    return () => {
+    } else {
       layer.remove();
-    };
-  }, [data, visible, map, stats, maxOpen, highlightSlug, onSelect]);
+    }
+  }, [visible, map, data]);
+
+  /**
+   * Restyle and update tooltip text in place.
+   *
+   * Keyed on the serialised stats rather than the object, because `stats` is a
+   * fresh object on every parent render: depending on its identity re-ran this
+   * on every render, and unbinding/rebinding tooltips across all 38 layers
+   * mid-interaction intermittently swallowed clicks. Tooltip text is updated
+   * with `setTooltipContent`, which leaves the binding — and its event
+   * handlers — untouched.
+   */
+  const statsKey = React.useMemo(() => JSON.stringify(stats ?? {}), [stats]);
+
+  React.useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+
+    layer.eachLayer((child) => {
+      const props = (child as L.Layer & { feature?: { properties: BoundaryFeature["properties"] } })
+        .feature?.properties;
+      if (!props) return;
+
+      (child as L.Path).setStyle(styleFor(props.slug));
+
+      const entry = styleRef.current.stats?.[props.slug];
+      const content = entry
+        ? `<strong>${escapeHtml(props.name)}</strong><br/>${entry.open} të hapura · ${entry.total} gjithsej`
+        : `<strong>${escapeHtml(props.name)}</strong>`;
+
+      if (child.getTooltip()) child.setTooltipContent(content);
+      else child.bindTooltip(content, { sticky: true, direction: "top", opacity: 0.95 });
+    });
+  }, [statsKey, highlightSlug, styleFor, data]);
 
   // Surface a fetch failure once, without breaking the rest of the map.
   React.useEffect(() => {

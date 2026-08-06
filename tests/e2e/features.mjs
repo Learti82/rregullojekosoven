@@ -96,12 +96,16 @@ await step("boundary click filters the page", async () => {
     }
 
     await page.mouse.click(point.x, point.y);
-    await page.waitForTimeout(3000);
-    check(
-      "clicking a boundary sets the municipality filter",
-      page.url().includes("municipality="),
-      page.url()
-    );
+    // Wait for the navigation rather than a fixed delay: the click re-queries
+    // the whole map page server-side, so the round-trip is not instant and a
+    // fixed timeout made this check flaky for no good reason.
+    let navigated = true;
+    await page
+      .waitForURL((url) => url.searchParams.has("municipality"), { timeout: 20000 })
+      .catch(() => {
+        navigated = false;
+      });
+    check("clicking a boundary sets the municipality filter", navigated, page.url());
   }
 });
 

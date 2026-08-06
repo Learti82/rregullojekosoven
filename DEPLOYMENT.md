@@ -223,6 +223,21 @@ setRateLimitStore(mySharedStore);
 
 No call site changes.
 
+**Storage.** Measured on real data: about **3.5 KB per report**, including its
+comments, status history, notifications and every index. A 0.5GB tier therefore
+holds roughly **145,000 reports** — years of national activity, because photos
+live in R2 and never touch the database.
+
+The tables that actually threaten a quota are the ones that grow with *activity*
+rather than content: `activity_logs` (one row per sign-in, vote, status change)
+and `notifications` (one row per recipient per event). `/api/cron/cleanup` prunes
+them daily — audit logs older than a year, already-read notifications older than
+90 days, expired sessions. Reports, comments and votes are never deleted.
+
+Set `CRON_SECRET` to enable it; without that secret the endpoint refuses every
+request rather than leaving deletion open to anyone who finds the URL. The
+schedule lives in `vercel.json`.
+
 **Backups.** Neon keeps point-in-time history on the free tier (retention varies).
 For an independent copy:
 
