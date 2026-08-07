@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { purgeExpiredCodes } from "@/lib/login-code";
 
 /**
  * Scheduled housekeeping.
@@ -11,6 +12,7 @@ import { prisma } from "@/lib/prisma";
  *
  *   activity_logs   one row per sign-in, vote, status change, moderation action
  *   notifications   one row per recipient per event
+ *   login_codes     one row per sign-in attempt, useless once spent or expired
  *
  * Reports, comments and votes are never touched — they are the public record and
  * the whole point of the platform.
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [activityLogs, notifications, sessions] = await Promise.all([
+    const [activityLogs, notifications, sessions, loginCodes] = await Promise.all([
       prisma.activityLog.deleteMany({
         where: { createdAt: { lt: daysAgo(ACTIVITY_LOG_DAYS) } },
       }),
@@ -70,12 +72,14 @@ export async function GET(request: NextRequest) {
       prisma.session.deleteMany({
         where: { expires: { lt: daysAgo(SESSION_GRACE_DAYS) } },
       }),
+      purgeExpiredCodes(),
     ]);
 
     const deleted = {
       activityLogs: activityLogs.count,
       readNotifications: notifications.count,
       expiredSessions: sessions.count,
+      loginCodes,
     };
 
     console.log("[cron/cleanup]", JSON.stringify(deleted));

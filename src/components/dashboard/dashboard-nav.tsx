@@ -9,6 +9,7 @@ import {
   FolderTree,
   Building2,
   ScrollText,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ const MUNICIPALITY_LINKS = [
 
 const ADMIN_LINKS = [
   { href: "/admin", label: "Analitika", icon: BarChart3 },
+  { href: "/admin/moderation", label: "Miratimi", icon: ShieldCheck },
   { href: "/admin/reports", label: "Raportet", icon: FileText },
   { href: "/admin/users", label: "Përdoruesit", icon: Users },
   { href: "/admin/municipalities", label: "Komunat", icon: Building2 },
@@ -28,7 +30,14 @@ const ADMIN_LINKS = [
   { href: "/admin/logs", label: "Regjistrat", icon: ScrollText },
 ] as const;
 
-export function DashboardNav({ role }: { role: string }) {
+export function DashboardNav({
+  role,
+  pendingModeration = 0,
+}: {
+  role: string;
+  /** Reports awaiting approval — surfaced as a badge so the queue is never missed. */
+  pendingModeration?: number;
+}) {
   const pathname = usePathname();
   const isAdminArea = pathname.startsWith("/admin");
   const links = isAdminArea ? ADMIN_LINKS : MUNICIPALITY_LINKS;
@@ -58,6 +67,14 @@ export function DashboardNav({ role }: { role: string }) {
               >
                 <link.icon className="size-4" aria-hidden />
                 {link.label}
+                {link.href === "/admin/moderation" && pendingModeration > 0 ? (
+                  <span
+                    className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold leading-none text-primary-foreground"
+                    aria-label={`${pendingModeration} raporte presin miratim`}
+                  >
+                    {pendingModeration > 99 ? "99+" : pendingModeration}
+                  </span>
+                ) : null}
               </Link>
             </li>
           );

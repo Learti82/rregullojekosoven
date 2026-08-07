@@ -3,6 +3,7 @@
  * Run: node tests/e2e/verify.mjs   (expects a running build and a seeded DB)
  */
 import { chromium } from "@playwright/test";
+import { closeLoginCodeClient, createPendingReport, plantLoginCode } from "./db.mjs";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3200";
 const results = [];
@@ -26,12 +27,47 @@ async function step(name, fn) {
 const go = (page, path) =>
   page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-async function login(page, email, password) {
+/** Poll until `text` is absent from the page; false if it never goes away. */
+async function gone(page, text, timeout = 25000) {
+  try {
+    await page.waitForFunction((t) => !document.body.innerText.includes(t), text, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Poll until `text` is present on the page; false if it never shows up. */
+async function appears(page, text, timeout = 25000) {
+  try {
+    await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Passwordless sign-in: request a code, then submit it.
+ *
+ * The code is planted directly in the database beforehand because no email is
+ * delivered during a test run. The two-step form itself is exercised for real.
+ */
+async function login(page, email) {
+  const code = await plantLoginCode(email);
+
   await go(page, "/login");
   await page.waitForSelector("#email", { timeout: 15000 });
   await page.fill("#email", email);
-  await page.fill("#password", password);
   await page.click('button[type="submit"]');
+
+  // Requesting a code replaces the planted row, so plant again once the form has
+  // moved on to step two and submit that value.
+  await page.waitForSelector("#code", { timeout: 25000 });
+  await plantLoginCode(email, code);
+
+  await page.fill("#code", code);
+  await page.click('form:has(#code) button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 25000 });
 }
 
@@ -41,8 +77,17 @@ const browser = await chromium.launch({
 });
 
 function watch(page) {
-  page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
-  page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
+  // Record the page each error came from: a bare stack trace from a minified
+  // bundle is close to useless without knowing which route produced it.
+  const where = () => {
+    try {
+      return new URL(page.url()).pathname;
+    } catch {
+      return "?";
+    }
+  };
+  page.on("console", (m) => m.type() === "error" && consoleErrors.push(`[${where()}] ${m.text()}`));
+  page.on("pageerror", (e) => consoleErrors.push(`[${where()}] pageerror: ${e.message}`));
   return page;
 }
 
@@ -100,7 +145,7 @@ const citizen = await browser.newContext({ viewport: { width: 1280, height: 900 
 const cPage = watch(await citizen.newPage());
 
 await step("citizen login", async () => {
-  await login(cPage, "arta@shembull.com", "Demo1234");
+  await login(cPage, "arta@shembull.com");
   check("citizen login succeeds", !cPage.url().includes("/login"), cPage.url());
 });
 
@@ -208,7 +253,7 @@ const staffCtx = await browser.newContext({ viewport: { width: 1280, height: 900
 const sPage = watch(await staffCtx.newPage());
 
 await step("municipality staff", async () => {
-  await login(sPage, "admin@prishtina.shembull.com", "Demo1234");
+  await login(sPage, "admin@prishtina.shembull.com");
   await go(sPage, "/municipality");
   await sPage.waitForTimeout(2000);
   check("staff reaches dashboard", sPage.url().includes("/municipality"), sPage.url());
@@ -242,14 +287,17 @@ await step("staff sees management panel on own report", async () => {
 const adminCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const aPage = watch(await adminCtx.newPage());
 
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@rregullokosoven.org";
+
 await step("platform admin", async () => {
-  await login(aPage, "admin@rregullokosoven.org", "Admin1234");
+  await login(aPage, ADMIN_EMAIL);
   await go(aPage, "/admin");
   await aPage.waitForTimeout(2500);
   check("admin reaches analytics", aPage.url().includes("/admin"), aPage.url());
   check("analytics renders charts", (await aPage.locator("svg.recharts-surface").count()) > 0);
 
   for (const [path, marker] of [
+    ["/admin/moderation", "Miratimi i raporteve"],
     ["/admin/users", "Përdoruesit"],
     ["/admin/municipalities", "Komunat"],
     ["/admin/categories", "Kategoritë"],
@@ -260,6 +308,34 @@ await step("platform admin", async () => {
     await aPage.waitForTimeout(1200);
     check(`admin ${path} renders`, (await aPage.locator("body").innerText()).includes(marker));
   }
+});
+
+await step("moderation gate", async () => {
+  // A report a citizen files must not be publicly visible until it is approved,
+  // and approving it must put it in front of everyone. This walks that whole
+  // path rather than trusting the query filters in isolation.
+  const title = `Verifikim i moderimit ${Date.now()}`;
+  const slug = await createPendingReport(title);
+
+  await go(page, `/reports/${slug}`);
+  await page.waitForTimeout(1200);
+  const anonBody = await page.locator("body").innerText();
+  check("pending report is not public", !anonBody.includes(title), anonBody.slice(0, 60));
+
+  await go(aPage, "/admin/moderation");
+  await aPage.waitForSelector("article", { timeout: 15000 });
+  const queueBody = await aPage.locator("body").innerText();
+  check("pending report appears in the queue", queueBody.includes(title));
+
+  const card = aPage.locator("article", { hasText: title }).first();
+  await card.locator('button:has-text("Mirato")').first().click();
+
+  // Approving revalidates several routes and then refreshes the queue, so how
+  // long the card takes to disappear varies. Poll rather than guess a duration.
+  check("approved report leaves the queue", await gone(aPage, title));
+
+  await go(page, `/reports/${slug}`);
+  check("approved report becomes public", await appears(page, title));
 });
 
 // =============================================================== theming, mobile, a11y
@@ -304,6 +380,7 @@ await step("accessibility basics", async () => {
 });
 
 await browser.close();
+await closeLoginCodeClient();
 
 const realErrors = consoleErrors.filter(
   (e) => !/favicon|Download the React DevTools|net::ERR_|tile\.openstreetmap/i.test(e)

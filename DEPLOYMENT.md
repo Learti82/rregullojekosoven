@@ -15,10 +15,17 @@ any commands locally.
    | Variable | Value |
    | --- | --- |
    | `AUTH_SECRET` | `openssl rand -base64 32` |
-   | `SEED_ADMIN_EMAIL` | your email — creates the admin account |
-   | `SEED_ADMIN_PASSWORD` | a strong password (change it after first login) |
+   | `RESEND_API_KEY` | free key from [resend.com](https://resend.com) — **without it nobody can sign in** |
+   | `EMAIL_FROM` | e.g. `RregulloKosovën <njoftime@yourdomain.org>` |
+   | `SEED_ADMIN_EMAIL` | your email — makes you the administrator |
+   | `CRON_SECRET` | `openssl rand -base64 32` — enables the scheduled jobs |
    | `NEXT_PUBLIC_APP_URL` | your Vercel URL |
    | `NEXT_PUBLIC_ADS_WHATSAPP` | your WhatsApp number, digits only |
+
+   There is no admin password to set. Sign-in is passwordless: you enter your
+   email, the app sends a 6-digit code, and that is the whole login. Whoever can
+   read the `SEED_ADMIN_EMAIL` inbox is the administrator — use an address you
+   control and keep it secure.
 
 4. **Redeploy**, then open `/api/health`. `"status": "ok"` means you are live.
 
@@ -40,7 +47,7 @@ control — a first deploy needs none of it.
 | No `DATABASE_URL` | Logs what is missing, build succeeds, site explains itself |
 | Empty database | Creates all 22 tables, seeds reference data |
 | Already set up | Migrations skipped (tracked), seed upserts — nothing duplicates |
-| `SEED_ADMIN_*` set | Creates or updates the admin account |
+| `SEED_ADMIN_EMAIL` set | Grants that address the ADMIN role (creates the account if new) |
 | Database unreachable | Build **fails** loudly rather than shipping a broken schema |
 
 Set `SKIP_DB_SETUP=true` once you would rather apply migrations deliberately —
@@ -91,7 +98,6 @@ the first administrator:
 ```bash
 DATABASE_URL="<pooled>" DIRECT_DATABASE_URL="<direct>" \
 SEED_ADMIN_EMAIL="admin@yourdomain.org" \
-SEED_ADMIN_PASSWORD="<a strong password>" \
 npm run db:seed
 ```
 
@@ -194,10 +200,13 @@ curl -s https://your-domain.org/sitemap.xml | head
 curl -o /dev/null -w '%{http_code}\n' https://your-domain.org/reports/does-not-exist   # must be 404
 ```
 
-- [ ] Sign in with the seeded admin, then **change its password**.
+- [ ] Sign in with the seeded admin — enter the address, then the code emailed to it.
+      If no email arrives, `RESEND_API_KEY` is missing or `EMAIL_FROM` uses an
+      unverified domain; both show up in `/api/health`.
 - [ ] `/admin/municipalities` lists all 38 municipalities.
 - [ ] Promote real municipal staff at `/admin/users` and bind each to a municipality.
-- [ ] File a test report end to end, including a photo, and confirm it appears on `/map`.
+- [ ] File a test report end to end, including a photo. It should **not** appear on
+      `/map` yet — approve it at `/admin/moderation`, then confirm it does.
 - [ ] Move that report through `VERIFIED → ASSIGNED → IN_PROGRESS → COMPLETED`
       and confirm the reporter is notified at each step.
 - [ ] Click an ad slot and confirm WhatsApp opens to the right number.
@@ -209,6 +218,25 @@ curl -o /dev/null -w '%{http_code}\n' https://your-domain.org/reports/does-not-e
 ---
 
 ## 5. Operations
+
+**Approving reports.** Citizen submissions are private until you approve them at
+`/admin/moderation`. The nav badge shows how many are waiting, and
+`/api/cron/moderation-digest` emails you twice a day whenever the queue is not
+empty (07:00 and 19:00 UTC — roughly morning and evening in Kosovo).
+
+The endpoint enforces its own 11-hour minimum between sends, so it is safe to
+call by hand or from any external scheduler:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://your-domain.org/api/cron/moderation-digest
+```
+
+Cron schedules and how many jobs a project may have are limited by Vercel plan —
+check the current limits for your plan in the Vercel dashboard under
+**Settings → Cron Jobs**. If your plan will not run the twice-daily schedule in
+`vercel.json`, drop one of the two entries, or point an external scheduler (e.g.
+[cron-job.org](https://cron-job.org), free) at the URL above; the endpoint's own
+rate limit means nothing breaks either way.
 
 **Rate limiting.** The default limiter is in-process. On a single server it is
 exact; on Vercel's serverless runtime each warm instance keeps its own counters,
@@ -232,11 +260,12 @@ The tables that actually threaten a quota are the ones that grow with *activity*
 rather than content: `activity_logs` (one row per sign-in, vote, status change)
 and `notifications` (one row per recipient per event). `/api/cron/cleanup` prunes
 them daily — audit logs older than a year, already-read notifications older than
-90 days, expired sessions. Reports, comments and votes are never deleted.
+90 days, expired sessions, spent sign-in codes. Reports, comments and votes are
+never deleted.
 
 Set `CRON_SECRET` to enable it; without that secret the endpoint refuses every
-request rather than leaving deletion open to anyone who finds the URL. The
-schedule lives in `vercel.json`.
+request rather than leaving deletion open to anyone who finds the URL. The same
+secret guards `/api/cron/moderation-digest`. Both schedules live in `vercel.json`.
 
 **Backups.** Neon keeps point-in-time history on the free tier (retention varies).
 For an independent copy:

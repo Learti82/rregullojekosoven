@@ -21,7 +21,7 @@ export default async function LoginPage({
       <CardHeader className="px-0 sm:px-6">
         <CardTitle className="text-2xl">Mirë se u ktheve</CardTitle>
         <CardDescription>
-          Kyçu për të raportuar probleme dhe për të ndjekur zgjidhjen e tyre.
+          Pa fjalëkalim — ju dërgojmë një kod me 6 shifra në email.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 px-0 sm:px-6">

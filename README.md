@@ -30,7 +30,7 @@ services.
 | Motion | Framer Motion | Honours `prefers-reduced-motion` |
 | Forms | React Hook Form + Zod | The same Zod schemas validate on client *and* server |
 | Data | Prisma 6 + PostgreSQL (Neon free tier) | |
-| Auth | Auth.js v5 (credentials, JWT sessions) | |
+| Auth | Auth.js v5 (passwordless email codes, JWT sessions) | |
 | Maps | Leaflet + marker clustering, OpenStreetMap tiles | No API key, no billing |
 | Boundaries | geoBoundaries XKX ADM2 GeoJSON, simplified in-repo | Real administrative outlines for all 38 municipalities |
 | Files | Cloudflare R2 via pre-signed PUT URLs | Free tier; binaries never touch the server |
@@ -85,12 +85,11 @@ Generate a secret with `openssl rand -base64 32`.
 ```bash
 SEED_DEMO=true \
 SEED_ADMIN_EMAIL=admin@example.com \
-SEED_ADMIN_PASSWORD='ChangeMe123' \
 npm run db:seed
 ```
 
 Adds 13 sample reports with votes, comments and realistic status histories, plus
-these accounts (password `Demo1234`):
+these accounts:
 
 | Account | Role |
 | --- | --- |
@@ -98,6 +97,11 @@ these accounts (password `Demo1234`):
 | `burim@shembull.com` | Citizen (Prizren) |
 | `punonjes@prishtina.shembull.com` | Municipality employee |
 | `admin@prishtina.shembull.com` | Municipality admin |
+
+There are no demo passwords, because there are no passwords. To sign in as one of
+these accounts locally, submit its address on `/login` — with `RESEND_API_KEY`
+unset, the development server prints the code to the terminal instead of mailing
+it.
 
 The seed is idempotent — reference data upserts, demo reports are skipped if any
 report already exists.
@@ -127,6 +131,30 @@ photo upload, which is hidden behind an explanatory notice rather than failing.
 
 Municipality staff are scoped to their own municipality by
 `canManageReport()` — enforced server-side on every action, not just in the UI.
+
+## Approval queue
+
+Nothing a citizen submits is publicly visible until an administrator approves it.
+A new report lands in `PENDING_REVIEW` and is excluded from the feed, map,
+explore, search, sitemap and every counter on the site — the only people who can
+see it are its author and platform staff.
+
+```
+citizen submits ──► PENDING_REVIEW ──► APPROVED  ──► public everywhere
+                                   └─► REJECTED ──► author told why, stays private
+```
+
+The gate is one exported constant, `PUBLIC_REPORT_SCOPE`, applied in every public
+query rather than re-typed per call site, so a new listing cannot forget it.
+
+Administrators work the queue at `/admin/moderation` — approve one at a time or
+tick several and approve in bulk. A rejection requires a written reason, which is
+sent to the author: a refusal with no explanation reads as censorship on a
+platform whose whole premise is public accountability.
+
+Twice a day `/api/cron/moderation-digest` emails every administrator a summary of
+what is waiting, with a link straight into the queue. It refuses to send twice
+within 11 hours, so a manual trigger or a retry cannot turn into duplicate mail.
 
 ## Report workflow
 
@@ -213,10 +241,15 @@ invitation. Ad links carry `rel="sponsored"`, and each slot is a labelled
   URL is minted; the object key is server-generated; `ContentLength` is pinned so
   a signed URL cannot accept a larger body. Report images are rejected unless
   they came from our own bucket.
-- **Passwords**: bcrypt (12 rounds), capped at 72 bytes. Login compares against a
-  dummy hash for unknown accounts so response time does not reveal which emails exist.
-- **Rate limiting**: sliding window on login, registration, reports, comments,
-  votes and uploads. Login is limited on two axes — per (IP + email) and a looser
+- **Sign-in**: passwordless. There is no password column and no password to
+  leak, phish or reuse. A 6-digit code is emailed, stored only as a SHA-256 hash
+  peppered with `AUTH_SECRET` and the address (so a code issued for one inbox
+  cannot be replayed against another), expires in 10 minutes, is single-use, and
+  is locked after 5 wrong guesses. Requesting a code always reports success
+  whether or not the account exists, so the form cannot be used to enumerate
+  which addresses are registered.
+- **Rate limiting**: sliding window on code requests, registration, reports,
+  comments, votes and uploads. Login is limited on two axes — per (IP + email) and a looser
   per-IP cap — so shared NAT (normal for Kosovo households and municipal offices)
   cannot lock a whole building out.
 - **Headers**: CSP, HSTS, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy and
@@ -256,14 +289,16 @@ blocked.
 ## Testing
 
 ```bash
-npm test              # 73 unit tests (Vitest)
+npm test              # 84 unit tests (Vitest)
 npm run test:coverage
 npm run typecheck
 npm run lint
 ```
 
 Unit tests cover the authorization policy, all Zod schemas, the rate limiter, the
-AI heuristics, the WhatsApp link builder and the formatting/geo utilities.
+one-time sign-in code (expiry, single use, the attempt cap, cross-address
+isolation, and that the plaintext code is never stored), the AI heuristics, the
+WhatsApp link builder and the formatting/geo utilities.
 
 `tests/bundle-guards.test.ts` holds two structural guards for mistakes that build
 cleanly but break the running app — both have bitten this codebase:
@@ -276,15 +311,26 @@ cleanly but break the running app — both have bitten this codebase:
 End-to-end (needs a running build and a seeded database):
 
 ```bash
-npm run build && npm start -- -p 3200 &
-node tests/e2e/verify.mjs      # 49 checks across all four roles
+npm run build
+EMAIL_TRANSPORT=console npm start -- -p 3200 &
+node tests/e2e/verify.mjs     # 54 checks across all four roles
 node tests/e2e/features.mjs   # 28 checks on boundaries + ad slots
 node tests/e2e/workflow.mjs   # 8 checks on the municipal status workflow
 ```
 
 These drive a real browser: Leaflet mounting, optimistic voting and its exact
-rollback, comment posting, role isolation, dashboards, dark mode, mobile overflow
-and accessibility basics.
+rollback, comment posting, role isolation, dashboards, the approval gate
+(a submitted report 404s for the public, appears in the admin queue, and goes
+live only once approved), dark mode, mobile overflow and accessibility basics.
+
+`EMAIL_TRANSPORT=console` is needed because sign-in is passwordless and a
+production build with no mail provider refuses to send. The harness then plants
+the one-time code directly in the database (`tests/e2e/db.mjs`) and types it into
+the real form — no test-only bypass exists in the application itself.
+
+Sign-in is rate limited to 8 code requests per address per 15 minutes, so running
+the suite back to back more than a few times will start failing at the login
+step. That is the limiter working, not a regression.
 
 ## Deployment
 

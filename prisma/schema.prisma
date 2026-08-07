@@ -60,6 +60,16 @@ enum NotificationType {
   SYSTEM
 }
 
+/**
+ * Publication gate, separate from the municipal workflow in `ReportStatus`.
+ * A report is invisible to the public until an administrator approves it.
+ */
+enum ModerationStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum ImageKind {
   ORIGINAL
   PROGRESS
@@ -93,7 +103,6 @@ model User {
   id             String    @id @default(cuid())
   email          String    @unique
   emailVerified  DateTime? @map("email_verified")
-  passwordHash   String?   @map("password_hash")
   name           String
   username       String    @unique
   image          String?
@@ -125,6 +134,7 @@ model User {
   statusChanges       StatusHistory[]
   activityLogs        ActivityLog[]
   reviewedReports     Report[]             @relation("ReportReviewer")
+  moderatedReports    Report[]             @relation("ReportModerator")
   uploadedImages      ReportImage[]        @relation("ImageUploader")
 
   @@index([roleId])
@@ -191,6 +201,29 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+/**
+ * One-time sign-in codes emailed to a user.
+ *
+ * Only a hash is stored, so a database leak cannot be replayed as a login.
+ * `attempts` caps brute force against a short numeric code, and rows are
+ * single-use via `consumedAt`.
+ */
+model LoginCode {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String    @map("code_hash")
+  purpose    String    @default("SIGN_IN") @db.VarChar(20)
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  ipHash     String?   @map("ip_hash") @db.VarChar(64)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([email, expiresAt])
+  @@index([expiresAt])
+  @@map("login_codes")
 }
 
 model VerificationToken {
@@ -282,6 +315,13 @@ model Report {
   isAnonymous Boolean @default(false) @map("is_anonymous")
   isPinned    Boolean @default(false) @map("is_pinned")
 
+  // Admin publication gate. Nothing reaches the public feed, map, search or
+  // sitemap until this is APPROVED.
+  moderationStatus ModerationStatus @default(PENDING_REVIEW) @map("moderation_status")
+  moderatedAt      DateTime?        @map("moderated_at")
+  moderatedById    String?          @map("moderated_by")
+  moderationNote   String?          @map("moderation_note") @db.VarChar(500)
+
   // Reserved for the AI layer (classification / duplicate detection / priority).
   aiCategoryGuess   String? @map("ai_category_guess")
   aiConfidence      Float?  @map("ai_confidence")
@@ -298,6 +338,7 @@ model Report {
   municipality Municipality  @relation(fields: [municipalityId], references: [id], onDelete: Restrict)
   createdBy    User          @relation("ReportAuthor", fields: [createdById], references: [id], onDelete: Cascade)
   reviewedBy   User?         @relation("ReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  moderatedBy  User?         @relation("ReportModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
   duplicateOf  Report?       @relation("ReportDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates   Report[]      @relation("ReportDuplicates")
 
@@ -310,6 +351,10 @@ model Report {
   notifications Notification[]
   internalNotes InternalNote[]
 
+  @@index([moderationStatus, createdAt(sort: Desc)])
+  @@index([moderationStatus, status, createdAt(sort: Desc)])
+  @@index([moderationStatus, municipalityId, createdAt(sort: Desc)])
+  @@index([moderationStatus, score(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@index([municipalityId, status, createdAt(sort: Desc)])
   @@index([categoryId, status, createdAt(sort: Desc)])

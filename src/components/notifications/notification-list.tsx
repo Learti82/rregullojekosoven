@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { NotificationType } from "@prisma/client";
-import { cn, formatRelativeTime, initials } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
+import { RelativeTime } from "@/components/ui/relative-time";
 import type { NotificationItem } from "@/types";
 import {
   clearReadNotificationsAction,
@@ -116,12 +117,10 @@ export function NotificationList({
                     {notification.body}
                   </p>
                 ) : null}
-                <time
-                  dateTime={new Date(notification.createdAt).toISOString()}
+                <RelativeTime
+                  date={notification.createdAt}
                   className="mt-1 block text-xs text-muted-foreground"
-                >
-                  {formatRelativeTime(notification.createdAt)}
-                </time>
+                />
               </div>
 
               {unread ? (

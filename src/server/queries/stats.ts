@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CategoryBreakdown, DashboardStats, TrendPoint } from "@/types";
+import { PUBLIC_REPORT_SCOPE } from "@/server/queries/reports";
 
 const OPEN_STATUSES = ["PENDING", "VERIFIED", "ASSIGNED"] as const;
 
@@ -10,7 +11,12 @@ const OPEN_STATUSES = ["PENDING", "VERIFIED", "ASSIGNED"] as const;
  * `municipalityId` is omitted).
  */
 export async function getDashboardStats(municipalityId?: string): Promise<DashboardStats> {
-  const scope: Prisma.ReportWhereInput = municipalityId ? { municipalityId } : {};
+  // Counters must never include submissions still awaiting approval: the
+  // landing page and municipal dashboards would otherwise advertise work that
+  // no citizen can see.
+  const scope: Prisma.ReportWhereInput = municipalityId
+    ? { ...PUBLIC_REPORT_SCOPE, municipalityId }
+    : { ...PUBLIC_REPORT_SCOPE };
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [total, open, inProgress, completed, rejected, newThisWeek, resolutionRows] =
@@ -57,7 +63,9 @@ export async function getCategoryBreakdown(
 ): Promise<CategoryBreakdown[]> {
   const grouped = await prisma.report.groupBy({
     by: ["categoryId"],
-    where: municipalityId ? { municipalityId } : undefined,
+    where: municipalityId
+      ? { ...PUBLIC_REPORT_SCOPE, municipalityId }
+      : { ...PUBLIC_REPORT_SCOPE },
     _count: { _all: true },
     orderBy: { _count: { categoryId: "desc" } },
     take: 8,
@@ -90,7 +98,8 @@ export async function getTrend(days = 30, municipalityId?: string): Promise<Tren
   const created = await prisma.$queryRaw<{ day: Date; count: bigint }[]>`
     SELECT date_trunc('day', "created_at") AS day, COUNT(*)::bigint AS count
     FROM "reports"
-    WHERE "created_at" >= ${since}
+    WHERE "moderation_status" = 'APPROVED'
+      AND "created_at" >= ${since}
       AND (${municipalityId ?? null}::text IS NULL OR "municipality_id" = ${municipalityId ?? null})
     GROUP BY 1
     ORDER BY 1 ASC
@@ -99,7 +108,8 @@ export async function getTrend(days = 30, municipalityId?: string): Promise<Tren
   const completed = await prisma.$queryRaw<{ day: Date; count: bigint }[]>`
     SELECT date_trunc('day', "resolved_at") AS day, COUNT(*)::bigint AS count
     FROM "reports"
-    WHERE "resolved_at" >= ${since}
+    WHERE "moderation_status" = 'APPROVED'
+      AND "resolved_at" >= ${since}
       AND (${municipalityId ?? null}::text IS NULL OR "municipality_id" = ${municipalityId ?? null})
     GROUP BY 1
     ORDER BY 1 ASC
@@ -127,6 +137,7 @@ export async function getTrend(days = 30, municipalityId?: string): Promise<Tren
 export async function getMunicipalityLeaderboard(limit = 10) {
   const grouped = await prisma.report.groupBy({
     by: ["municipalityId"],
+    where: { ...PUBLIC_REPORT_SCOPE },
     _count: { _all: true },
     orderBy: { _count: { municipalityId: "desc" } },
     take: limit,
@@ -141,7 +152,7 @@ export async function getMunicipalityLeaderboard(limit = 10) {
     }),
     prisma.report.groupBy({
       by: ["municipalityId"],
-      where: { municipalityId: { in: ids }, status: "COMPLETED" },
+      where: { ...PUBLIC_REPORT_SCOPE, municipalityId: { in: ids }, status: "COMPLETED" },
       _count: { _all: true },
     }),
   ]);
@@ -165,10 +176,10 @@ export async function getMunicipalityLeaderboard(limit = 10) {
 
 export async function getPlatformCounters() {
   const [reports, users, municipalities, resolved] = await Promise.all([
-    prisma.report.count(),
+    prisma.report.count({ where: { ...PUBLIC_REPORT_SCOPE } }),
     prisma.user.count({ where: { isActive: true } }),
     prisma.municipality.count({ where: { isActive: true } }),
-    prisma.report.count({ where: { status: "COMPLETED" } }),
+    prisma.report.count({ where: { ...PUBLIC_REPORT_SCOPE, status: "COMPLETED" } }),
   ]);
   return { reports, users, municipalities, resolved };
 }
@@ -182,10 +193,17 @@ export async function getMunicipalityReportStats(): Promise<
 > {
   const [municipalities, totals, open] = await Promise.all([
     prisma.municipality.findMany({ select: { id: true, slug: true } }),
-    prisma.report.groupBy({ by: ["municipalityId"], _count: { _all: true } }),
     prisma.report.groupBy({
       by: ["municipalityId"],
-      where: { status: { in: ["PENDING", "VERIFIED", "ASSIGNED", "IN_PROGRESS"] } },
+      where: { ...PUBLIC_REPORT_SCOPE },
+      _count: { _all: true },
+    }),
+    prisma.report.groupBy({
+      by: ["municipalityId"],
+      where: {
+        ...PUBLIC_REPORT_SCOPE,
+        status: { in: ["PENDING", "VERIFIED", "ASSIGNED", "IN_PROGRESS"] },
+      },
       _count: { _all: true },
     }),
   ]);

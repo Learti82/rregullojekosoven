@@ -5,9 +5,9 @@ import { getCurrentUserSettings } from "@/server/queries/users";
 import { getMunicipalities } from "@/server/queries/taxonomy";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
-import { PasswordSettingsForm } from "@/components/settings/password-settings-form";
 import { NotificationSettingsForm } from "@/components/settings/notification-settings-form";
 import { DangerZone } from "@/components/settings/danger-zone";
+import { SecurityInfo } from "@/components/settings/security-info";
 
 export const metadata: Metadata = {
   title: "Cilësimet",
@@ -67,7 +67,7 @@ export default async function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-6">
-          {user.passwordHash ? <PasswordSettingsForm /> : null}
+          <SecurityInfo email={user.email} />
           <DangerZone />
         </TabsContent>
       </Tabs>

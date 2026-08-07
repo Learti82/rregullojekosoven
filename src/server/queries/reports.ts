@@ -35,8 +35,19 @@ function rangeToDate(range: ReportFilters["range"]): Date | undefined {
   }
 }
 
+/**
+ * Everything the public may see: approved reports only.
+ *
+ * Applied as a base in `buildWhere`, so every listing, search, map query and
+ * sitemap entry inherits it. Anything that must bypass it (the admin queue, an
+ * author viewing their own submission) does so explicitly and visibly.
+ */
+export const PUBLIC_REPORT_SCOPE = {
+  moderationStatus: "APPROVED",
+} as const satisfies Prisma.ReportWhereInput;
+
 function buildWhere(filters: Partial<ReportFilters>): Prisma.ReportWhereInput {
-  const where: Prisma.ReportWhereInput = {};
+  const where: Prisma.ReportWhereInput = { ...PUBLIC_REPORT_SCOPE };
 
   if (filters.q) {
     // Prisma parameterises these — no string interpolation reaches SQL.
@@ -138,7 +149,10 @@ export async function getFeed(page = 1): Promise<Paginated<ReportListItem>> {
   if (!viewer?.municipalityId) return getReports({ page, sort: "recent" });
 
   const pageSize = PAGE_SIZE;
-  const where: Prisma.ReportWhereInput = { municipalityId: viewer.municipalityId };
+  const where: Prisma.ReportWhereInput = {
+    ...PUBLIC_REPORT_SCOPE,
+    municipalityId: viewer.municipalityId,
+  };
   const [total, rows] = await Promise.all([
     prisma.report.count({ where }),
     prisma.report.findMany({
@@ -173,6 +187,18 @@ export const getReportBySlug = cache(async (slug: string): Promise<ReportDetail 
   if (!report) return null;
 
   const viewer = await getCurrentUser();
+
+  // An unapproved report is visible only to its author and to staff, so people
+  // can still see what they submitted while it waits in the queue.
+  if (report.moderationStatus !== "APPROVED") {
+    const isOwner = viewer?.id === report.createdById;
+    const isStaff =
+      viewer?.role === "ADMIN" ||
+      viewer?.role === "MUNICIPALITY_ADMIN" ||
+      viewer?.role === "MUNICIPALITY_EMPLOYEE";
+    if (!isOwner && !isStaff) return null;
+  }
+
   const [withState] = await withViewerState([report], viewer?.id ?? null);
   return withState as unknown as ReportDetail;
 });
@@ -232,6 +258,7 @@ export async function getRelatedReports(report: {
 }): Promise<ReportListItem[]> {
   const rows = await prisma.report.findMany({
     where: {
+      ...PUBLIC_REPORT_SCOPE,
       id: { not: report.id },
       categoryId: report.categoryId,
       municipalityId: report.municipalityId,
@@ -261,6 +288,7 @@ export async function findNearbyReports(params: {
 
   return prisma.report.findMany({
     where: {
+      ...PUBLIC_REPORT_SCOPE,
       id: params.excludeId ? { not: params.excludeId } : undefined,
       categoryId: params.categoryId,
       status: { notIn: ["REJECTED", "DUPLICATE", "COMPLETED"] },
@@ -285,7 +313,9 @@ export async function findNearbyReports(params: {
 export async function getReportsByStatusCount(municipalityId?: string) {
   const grouped = await prisma.report.groupBy({
     by: ["status"],
-    where: municipalityId ? { municipalityId } : undefined,
+    where: municipalityId
+      ? { ...PUBLIC_REPORT_SCOPE, municipalityId }
+      : { ...PUBLIC_REPORT_SCOPE },
     _count: { _all: true },
   });
   return grouped.reduce<Record<ReportStatus, number>>(
@@ -308,9 +338,55 @@ export async function getReportsByStatusCount(municipalityId?: string) {
 /** Slugs for the sitemap. */
 export async function getAllReportSlugs(limit = 10000) {
   return prisma.report.findMany({
-    where: { status: { notIn: ["REJECTED", "DUPLICATE"] } },
+    where: { ...PUBLIC_REPORT_SCOPE, status: { notIn: ["REJECTED", "DUPLICATE"] } },
     select: { slug: true, updatedAt: true },
     orderBy: { createdAt: "desc" },
     take: limit,
+  });
+}
+
+/**
+ * The administrator's approval queue: submissions awaiting a decision, oldest
+ * first so nothing is left behind.
+ */
+export async function getModerationQueue(page = 1, pageSize = 20) {
+  const where: Prisma.ReportWhereInput = { moderationStatus: "PENDING_REVIEW" };
+
+  const [total, rows] = await Promise.all([
+    prisma.report.count({ where }),
+    prisma.report.findMany({
+      where,
+      include: {
+        ...listInclude,
+        images: { orderBy: { sortOrder: "asc" } },
+      },
+      orderBy: { createdAt: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return { items: rows, total, page, pageSize, totalPages, hasMore: page < totalPages };
+}
+
+export async function getPendingModerationCount(): Promise<number> {
+  return prisma.report.count({ where: { moderationStatus: "PENDING_REVIEW" } });
+}
+
+/** Reports the signed-in user submitted that are still awaiting a decision. */
+export async function getOwnPendingReports(userId: string) {
+  return prisma.report.findMany({
+    where: { createdById: userId, moderationStatus: { not: "APPROVED" } },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      moderationStatus: true,
+      moderationNote: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
   });
 }

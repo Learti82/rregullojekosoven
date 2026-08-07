@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/cleanup",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/moderation-digest",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/moderation-digest",
+      "schedule": "0 19 * * *"
     }
   ]
 }

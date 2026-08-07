@@ -1,4 +1,5 @@
 import { chromium } from "@playwright/test";
+import { closeLoginCodeClient, plantLoginCode } from "./db.mjs";
 const BASE = process.env.E2E_BASE ?? "http://localhost:3300";
 const out = [];
 let fail = 0;
@@ -9,11 +10,18 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } }
 const p = await ctx.newPage();
 const go = (path) => p.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-// Sign in as the Prishtina municipal admin.
+// Sign in as the Prishtina municipal admin. Sign-in is passwordless, so the
+// harness plants the one-time code it would otherwise have received by email.
+const STAFF_EMAIL = "admin@prishtina.shembull.com";
+await plantLoginCode(STAFF_EMAIL);
 await go("/login");
-await p.fill("#email", "admin@prishtina.shembull.com");
-await p.fill("#password", "Demo1234");
+await p.fill("#email", STAFF_EMAIL);
 await p.click('button[type="submit"]');
+await p.waitForSelector("#code", { timeout: 25000 });
+// The request replaced the planted row; plant the same code again and submit it.
+const staffCode = await plantLoginCode(STAFF_EMAIL);
+await p.fill("#code", staffCode);
+await p.click('form:has(#code) button[type="submit"]');
 await p.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 25000 });
 
 // Find a PENDING report in this municipality.
@@ -57,6 +65,7 @@ const next = await p.locator('[role="option"]').allInnerTexts();
 check("transition set updates after change", next.includes("Në proces") || next.includes("I caktuar"), next.join("|"));
 
 await browser.close();
+await closeLoginCodeClient();
 console.log(out.join("\n"));
 console.log(`\n${out.length - fail}/${out.length} workflow checks passed`);
 process.exit(fail ? 1 : 0);

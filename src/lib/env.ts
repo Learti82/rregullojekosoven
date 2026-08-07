@@ -26,6 +26,14 @@ const REQUIRED = [
     key: "AUTH_SECRET",
     description: "Signing secret for sessions. Generate with: openssl rand -base64 32",
   },
+  {
+    // Sign-in is passwordless, so email is not a nice-to-have: without a
+    // provider no one can log in at all, and a deployment in that state is
+    // misconfigured even though every page renders.
+    key: "RESEND_API_KEY",
+    description:
+      "Resend API key. Sign-in emails a one-time code — without this nobody can log in.",
+  },
 ] as const;
 
 const OPTIONAL = [
@@ -34,6 +42,16 @@ const OPTIONAL = [
     description: "Unpooled connection, used by prisma migrate. Falls back to DATABASE_URL.",
   },
   { key: "NEXT_PUBLIC_APP_URL", description: "Public origin, used for canonical/OG URLs." },
+  {
+    key: "EMAIL_FROM",
+    description:
+      "Sender for sign-in codes, e.g. 'RregulloKosovën <njoftime@yourdomain.org>'. Must be a domain verified in Resend.",
+  },
+  {
+    key: "CRON_SECRET",
+    description:
+      "Guards the scheduled jobs (cleanup, moderation digest). Unset means neither runs.",
+  },
   { key: "R2_ACCOUNT_ID", description: "Cloudflare R2 — enables photo upload." },
   { key: "R2_ACCESS_KEY_ID", description: "Cloudflare R2 — enables photo upload." },
   { key: "R2_SECRET_ACCESS_KEY", description: "Cloudflare R2 — enables photo upload." },

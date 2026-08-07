@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, MessageSquare, Reply, Send, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { cn, formatRelativeTime, initials } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
+import { RelativeTime } from "@/components/ui/relative-time";
 import type { CommentNode } from "@/types";
 import type { SessionUser } from "@/lib/permissions";
 import {
@@ -183,12 +184,10 @@ function CommentItem({
                       <ShieldCheck className="size-3" aria-hidden /> Zyrtare
                     </span>
                   ) : null}
-                  <time
-                    dateTime={new Date(comment.createdAt).toISOString()}
+                  <RelativeTime
+                    date={comment.createdAt}
                     className="text-xs text-muted-foreground"
-                  >
-                    {formatRelativeTime(comment.createdAt)}
-                  </time>
+                  />
                 </div>
 
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">

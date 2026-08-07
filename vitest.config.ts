@@ -10,6 +10,14 @@ export default defineConfig({
     // loaded by Vite's CJS config loader.
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // `server-only` is a marker package with no runtime behaviour: under the
+      // "react-server" condition it resolves to an empty module, and that is the
+      // condition server code runs under. Vite does not apply that condition, so
+      // point it at the same empty file Next.js uses. Without this, any test
+      // touching a server module dies on an unresolved import.
+      "server-only": fileURLToPath(
+        new URL("./node_modules/next/dist/compiled/server-only/empty.js", import.meta.url)
+      ),
     },
   },
   test: {

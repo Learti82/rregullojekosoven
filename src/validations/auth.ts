@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-const passwordRules = z
-  .string()
-  .min(8, "Fjalëkalimi duhet të ketë së paku 8 karaktere.")
-  .max(72, "Fjalëkalimi është shumë i gjatë.") // bcrypt truncates beyond 72 bytes
-  .regex(/[a-z]/, "Duhet të përmbajë së paku një shkronjë të vogël.")
-  .regex(/[A-Z]/, "Duhet të përmbajë së paku një shkronjë të madhe.")
-  .regex(/[0-9]/, "Duhet të përmbajë së paku një numër.");
-
 export const emailSchema = z
   .string()
   .trim()
@@ -27,9 +19,30 @@ export const usernameSchema = z
     "Lejohen vetëm shkronja të vogla, numra dhe nënvijë (_)."
   );
 
+/** Step 1 of sign-in: ask for a code. */
+export const requestCodeSchema = z.object({
+  email: emailSchema,
+});
+
+/** Step 2: submit the emailed code. Spaces and dashes are tolerated. */
+export const verifyCodeSchema = z.object({
+  email: emailSchema,
+  code: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/[\s-]/g, ""))
+    .pipe(
+      z
+        .string()
+        .length(6, "Kodi duhet të ketë 6 shifra.")
+        .regex(/^[0-9]{6}$/, "Kodi përmban vetëm shifra.")
+    ),
+});
+
+/** Used by the Auth.js credentials provider, which re-verifies server-side. */
 export const loginSchema = z.object({
   email: emailSchema,
-  password: z.string().min(1, "Fjalëkalimi është i detyrueshëm.").max(72),
+  code: z.string().min(6).max(12),
 });
 
 export const registerSchema = z
@@ -41,16 +54,10 @@ export const registerSchema = z
       .max(80, "Emri nuk mund të kalojë 80 karaktere."),
     username: usernameSchema,
     email: emailSchema,
-    password: passwordRules,
-    confirmPassword: z.string(),
     municipalityId: z.string().cuid("Zgjidhni një komunë të vlefshme.").optional().or(z.literal("")),
     acceptTerms: z.literal(true, {
       errorMap: () => ({ message: "Duhet të pranoni kushtet e përdorimit." }),
     }),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Fjalëkalimet nuk përputhen.",
-    path: ["confirmPassword"],
   });
 
 export const updateProfileSchema = z.object({
@@ -73,23 +80,9 @@ export const notificationPreferencesSchema = z.object({
   notifyInApp: z.boolean(),
 });
 
-export const changePasswordSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Shkruani fjalëkalimin aktual.").max(72),
-    newPassword: passwordRules,
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "Fjalëkalimet nuk përputhen.",
-    path: ["confirmPassword"],
-  })
-  .refine((data) => data.newPassword !== data.currentPassword, {
-    message: "Fjalëkalimi i ri duhet të jetë i ndryshëm nga aktuali.",
-    path: ["newPassword"],
-  });
-
 export type LoginInput = z.infer<typeof loginSchema>;
+export type RequestCodeInput = z.infer<typeof requestCodeSchema>;
+export type VerifyCodeInput = z.infer<typeof verifyCodeSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
-export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>;

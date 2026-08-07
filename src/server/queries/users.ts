@@ -22,7 +22,15 @@ export const getProfileByUsername = cache(async (username: string) => {
         orderBy: { earnedAt: "desc" },
         include: { badge: true },
       },
-      _count: { select: { reports: true, comments: true, votes: true } },
+      _count: {
+        select: {
+          // Only approved reports count publicly, so the headline number on a
+          // profile matches the list of reports underneath it.
+          reports: { where: { moderationStatus: "APPROVED" } },
+          comments: true,
+          votes: true,
+        },
+      },
     },
   });
   if (!user || !user.isActive || user.isBanned) return null;
@@ -41,7 +49,6 @@ export const getCurrentUserSettings = cache(async (userId: string) =>
       username: true,
       image: true,
       municipalityId: true,
-      passwordHash: true,
       role: { select: { name: true, label: true } },
       profile: true,
     },

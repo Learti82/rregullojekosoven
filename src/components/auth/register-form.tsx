@@ -4,8 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
-import { Check, Eye, EyeOff, UserPlus, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Mail, UserPlus } from "lucide-react";
 import { registerAction } from "@/server/actions/auth";
 import { fieldError } from "@/hooks/use-action-state";
 import { Button } from "@/components/ui/button";
@@ -23,22 +22,13 @@ import { FieldError, FormMessage } from "@/components/ui/form-error";
 
 type Municipality = { id: string; name: string };
 
-const RULES = [
-  { test: (value: string) => value.length >= 8, label: "Së paku 8 karaktere" },
-  { test: (value: string) => /[a-z]/.test(value), label: "Një shkronjë e vogël" },
-  { test: (value: string) => /[A-Z]/.test(value), label: "Një shkronjë e madhe" },
-  { test: (value: string) => /[0-9]/.test(value), label: "Një numër" },
-] as const;
-
 export function RegisterForm({ municipalities }: { municipalities: Municipality[] }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(registerAction, null);
-  const [password, setPassword] = React.useState("");
-  const [showPassword, setShowPassword] = React.useState(false);
   const [municipalityId, setMunicipalityId] = React.useState("");
 
   React.useEffect(() => {
-    if (state?.success) router.push("/login?registered=1");
+    if (state?.success) router.push(`/login?registered=1`);
   }, [state, router]);
 
   return (
@@ -112,65 +102,14 @@ export function RegisterForm({ municipalities }: { municipalities: Municipality[
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="password">Fjalëkalimi</Label>
-        <div className="relative">
-          <Input
-            id="password"
-            name="password"
-            type={showPassword ? "text" : "password"}
-            autoComplete="new-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="pr-10"
-            aria-invalid={Boolean(fieldError(state, "password"))}
-            aria-describedby="password-error password-rules"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((value) => !value)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground hover:text-foreground"
-            aria-label={showPassword ? "Fshih fjalëkalimin" : "Shfaq fjalëkalimin"}
-          >
-            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
-        </div>
-
-        {password.length > 0 ? (
-          <ul id="password-rules" className="grid gap-1 pt-1 sm:grid-cols-2">
-            {RULES.map((rule) => {
-              const passed = rule.test(password);
-              return (
-                <li
-                  key={rule.label}
-                  className={cn(
-                    "flex items-center gap-1.5 text-xs",
-                    passed ? "text-success" : "text-muted-foreground"
-                  )}
-                >
-                  {passed ? <Check className="size-3.5" /> : <X className="size-3.5" />}
-                  {rule.label}
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-        <FieldError id="password-error" messages={fieldError(state, "password")} />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="confirmPassword">Konfirmo fjalëkalimin</Label>
-        <Input
-          id="confirmPassword"
-          name="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          required
-          aria-invalid={Boolean(fieldError(state, "confirmPassword"))}
-          aria-describedby="confirm-error"
-        />
-        <FieldError id="confirm-error" messages={fieldError(state, "confirmPassword")} />
+      <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+        <p className="flex items-start gap-2 text-muted-foreground">
+          <Mail className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+          <span>
+            Nuk ka fjalëkalim. Sa herë që kyçeni, ju dërgojmë një kod me 6 shifra
+            në këtë email.
+          </span>
+        </p>
       </div>
 
       <div className="flex items-start gap-2.5 pt-1">

@@ -113,26 +113,10 @@ export async function createReportAction(
       return created;
     });
 
-    // Alert the municipality's staff that something new landed in their queue.
-    const staff = await prisma.user.findMany({
-      where: {
-        municipalityId: report.municipalityId,
-        isActive: true,
-        role: { name: { in: ["MUNICIPALITY_EMPLOYEE", "MUNICIPALITY_ADMIN"] } },
-      },
-      select: { id: true },
-    });
-    if (staff.length > 0) {
-      await notify({
-        userIds: staff.map((s) => s.id),
-        actorId: user.id,
-        reportId: report.id,
-        type: "SYSTEM",
-        title: "Raport i ri në komunën tuaj",
-        body: report.title,
-        url: `/reports/${report.slug}`,
-      });
-    }
+    // Municipal staff are deliberately *not* notified here. The report is not
+    // public yet, and pushing unreviewed submissions at a municipality would
+    // hand anyone with an account a direct line into their inbox.
+    // `approveReportAction` notifies them once an administrator has cleared it.
 
     await evaluateBadges(user.id);
     await logActivity({
@@ -147,7 +131,10 @@ export async function createReportAction(
     revalidatePath("/map");
     revalidatePath("/feed");
 
-    return ok({ slug: report.slug }, "Raporti u publikua me sukses.");
+    return ok(
+      { slug: report.slug },
+      "Raporti u dërgua për shqyrtim. Do ta publikojmë sapo ta miratojë administratori."
+    );
   } catch (error) {
     return toActionError(error);
   }

@@ -2,23 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { AuthError } from "next-auth";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { signIn, signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/permissions";
-import { enforceRateLimit, getClientIp } from "@/lib/rate-limit";
+import { enforceRateLimit, getClientIp, hashIdentifier } from "@/lib/rate-limit";
 import { slugify, safeRedirectPath } from "@/lib/utils";
 import {
-  changePasswordSchema,
-  loginSchema,
   notificationPreferencesSchema,
   registerSchema,
+  requestCodeSchema,
   updateProfileSchema,
+  verifyCodeSchema,
 } from "@/validations/auth";
+import { issueLoginCode, CODE_TTL_MINUTES } from "@/lib/login-code";
+import { loginCodeEmail, sendEmail } from "@/lib/email";
 import { logActivity, ok, parseInput, toActionError } from "@/server/action-helpers";
 import type { ActionResult } from "@/types";
-
-const BCRYPT_ROUNDS = 12;
 
 /** Generate a free username from the requested one, e.g. `arta` → `arta2`. */
 async function ensureUniqueUsername(desired: string): Promise<string> {
@@ -43,14 +42,12 @@ export async function registerAction(
       name: formData.get("name"),
       username: formData.get("username"),
       email: formData.get("email"),
-      password: formData.get("password"),
-      confirmPassword: formData.get("confirmPassword"),
       municipalityId: formData.get("municipalityId") ?? "",
       acceptTerms: formData.get("acceptTerms") === "on" || formData.get("acceptTerms") === "true",
     });
     if (!parsed.ok) return parsed.result;
 
-    const { name, email, password, username, municipalityId } = parsed.data;
+    const { name, email, username, municipalityId } = parsed.data;
 
     const existingEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existingEmail) {
@@ -78,15 +75,12 @@ export async function registerAction(
       return { success: false, error: "Sistemi nuk është i inicializuar. Kontaktoni administratorin." };
     }
 
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-
     // User + profile are created together so a profile row always exists.
     const user = await prisma.user.create({
       data: {
         name,
         email,
         username: await ensureUniqueUsername(username),
-        passwordHash,
         roleId: citizenRole.id,
         municipalityId: municipalityId || null,
         profile: { create: {} },
@@ -101,41 +95,96 @@ export async function registerAction(
       entityId: user.id,
     });
 
-    return ok({ email: user.email }, "Llogaria u krijua me sukses. Tani mund të kyçeni.");
+    return ok({ email: user.email }, "Llogaria u krijua. Ju dërguam një kod kyçjeje në email.");
   } catch (error) {
     return toActionError(error);
   }
 }
 
-export async function loginAction(
+/**
+ * Step 1 — email a one-time code.
+ *
+ * Always reports success, whether or not the address has an account. Telling a
+ * caller "no such user" turns the login form into a membership oracle: anyone
+ * could enumerate which citizens are registered on a platform where people
+ * report problems with their own municipality.
+ */
+export async function requestLoginCodeAction(
+  _prev: ActionResult<{ email: string }> | null,
+  formData: FormData
+): Promise<ActionResult<{ email: string }>> {
+  try {
+    const parsed = parseInput(requestCodeSchema, { email: formData.get("email") });
+    if (!parsed.ok) return parsed.result;
+
+    const { email } = parsed.data;
+    const ip = await getClientIp();
+
+    // Two axes, as with any credential endpoint: per address (targeted) and
+    // per IP (spraying, and abusing us as a mail relay).
+    await enforceRateLimit("loginIp", ip);
+    await enforceRateLimit("login", `code:${email}`);
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, isActive: true, isBanned: true },
+    });
+
+    if (user && user.isActive && !user.isBanned) {
+      const { code } = await issueLoginCode(email, hashIdentifier(ip));
+      const message = loginCodeEmail(code, CODE_TTL_MINUTES);
+      const sent = await sendEmail({ to: email, ...message });
+
+      if (!sent.ok) return { success: false, error: sent.error };
+
+      await logActivity({
+        userId: user.id,
+        action: "auth.code_requested",
+        entityType: "user",
+        entityId: user.id,
+      });
+    }
+
+    return ok(
+      { email },
+      `Nëse ky email ka llogari, kodi u dërgua. Kontrolloni kutinë tuaj (skadon pas ${CODE_TTL_MINUTES} minutash).`
+    );
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Step 2 — exchange the code for a session.
+ *
+ * The code is verified inside the Auth.js provider rather than here, so a
+ * single place consumes it and there is no window where it is checked twice.
+ */
+export async function verifyLoginCodeAction(
   _prev: ActionResult<{ redirectTo: string }> | null,
   formData: FormData
 ): Promise<ActionResult<{ redirectTo: string }>> {
   try {
-    const parsed = parseInput(loginSchema, {
+    const parsed = parseInput(verifyCodeSchema, {
       email: formData.get("email"),
-      password: formData.get("password"),
+      code: formData.get("code"),
     });
     if (!parsed.ok) return parsed.result;
 
-    // Per-IP first (cheap, catches spraying), then per-account from this IP.
-    const ip = await getClientIp();
-    await enforceRateLimit("loginIp", ip);
-    await enforceRateLimit("login", `${ip}:${parsed.data.email}`);
+    await enforceRateLimit("login", `verify:${parsed.data.email}`);
 
     const redirectTo = safeRedirectPath(formData.get("callbackUrl") as string | null);
 
     await signIn("credentials", {
       email: parsed.data.email,
-      password: parsed.data.password,
+      code: parsed.data.code,
       redirect: false,
     });
 
     return ok({ redirectTo });
   } catch (error) {
     if (error instanceof AuthError) {
-      // Deliberately identical for wrong password and unknown account.
-      return { success: false, error: "Email-i ose fjalëkalimi nuk është i saktë." };
+      return { success: false, error: "Kodi nuk është i saktë ose ka skaduar. Kërkoni një kod të ri." };
     }
     return toActionError(error);
   }
@@ -204,56 +253,6 @@ export async function updateProfileAction(
     revalidatePath("/settings");
     revalidatePath(`/profile/${user.username}`);
     return ok(undefined, "Profili u përditësua.");
-  } catch (error) {
-    return toActionError(error);
-  }
-}
-
-export async function changePasswordAction(
-  _prev: ActionResult<undefined> | null,
-  formData: FormData
-): Promise<ActionResult<undefined>> {
-  try {
-    const user = await requireUser();
-    await enforceRateLimit("login", `pwchange:${user.id}`);
-
-    const parsed = parseInput(changePasswordSchema, {
-      currentPassword: formData.get("currentPassword"),
-      newPassword: formData.get("newPassword"),
-      confirmPassword: formData.get("confirmPassword"),
-    });
-    if (!parsed.ok) return parsed.result;
-
-    const record = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: { passwordHash: true },
-    });
-    if (!record?.passwordHash) {
-      return { success: false, error: "Llogaria juaj nuk përdor fjalëkalim." };
-    }
-
-    const valid = await bcrypt.compare(parsed.data.currentPassword, record.passwordHash);
-    if (!valid) {
-      return {
-        success: false,
-        error: "Fjalëkalimi aktual nuk është i saktë.",
-        fieldErrors: { currentPassword: ["Fjalëkalimi aktual nuk është i saktë."] },
-      };
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(parsed.data.newPassword, BCRYPT_ROUNDS) },
-    });
-
-    await logActivity({
-      userId: user.id,
-      action: "auth.password_change",
-      entityType: "user",
-      entityId: user.id,
-    });
-
-    return ok(undefined, "Fjalëkalimi u ndryshua.");
   } catch (error) {
     return toActionError(error);
   }

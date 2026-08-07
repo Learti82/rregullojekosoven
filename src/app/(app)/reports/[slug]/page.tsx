@@ -9,6 +9,7 @@ import {
   Eye,
   Hash,
   MapPin,
+  ShieldAlert,
   Tag,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
@@ -59,6 +60,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: report.title,
     description,
     alternates: { canonical: `/reports/${report.slug}` },
+    // Only the author and staff can load an unapproved report, but a crawler
+    // that gets the URL some other way must not index a page the public cannot
+    // see — and must not keep it cached if it is later rejected.
+    ...(report.moderationStatus === "APPROVED"
+      ? {}
+      : { robots: { index: false, follow: false } }),
     openGraph: {
       type: "article",
       title: report.title,
@@ -159,6 +166,26 @@ export default async function ReportDetailPage({ params }: Props) {
           </li>
         </ol>
       </nav>
+
+      {report.moderationStatus !== "APPROVED" ? (
+        <Alert
+          variant={report.moderationStatus === "REJECTED" ? "destructive" : "default"}
+          className="mb-6"
+        >
+          <ShieldAlert className="size-4" />
+          <AlertTitle>
+            {report.moderationStatus === "REJECTED"
+              ? "Ky raport nuk u publikua"
+              : "Ky raport është duke u shqyrtuar"}
+          </AlertTitle>
+          <AlertDescription>
+            {report.moderationStatus === "REJECTED"
+              ? (report.moderationNote ??
+                "Administratori nuk e miratoi këtë raport për publikim.")
+              : "Vetëm ju dhe administratorët e shihni këtë faqe. Sapo të miratohet, do të shfaqet në hartë, në kërkim dhe te raportet publike."}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
         <article className="min-w-0 space-y-8">

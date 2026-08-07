@@ -57,7 +57,7 @@ export function CreateReportForm({
 
   React.useEffect(() => {
     if (state?.success) {
-      toast.success(state.message ?? "Raporti u publikua.");
+      toast.success(state.message ?? "Raporti u dërgua për shqyrtim.");
       router.push(`/reports/${state.data.slug}`);
     }
   }, [state, router]);

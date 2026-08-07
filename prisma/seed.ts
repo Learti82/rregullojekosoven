@@ -8,7 +8,6 @@
  * script is safe to run against production.
  */
 import { PrismaClient, type Prisma, type ReportStatus } from "@prisma/client";
-import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -27,7 +26,6 @@ const IS_PRODUCTION =
 const DEMO_REQUESTED = process.env.SEED_DEMO === "true";
 const SEED_DEMO =
   DEMO_REQUESTED && (!IS_PRODUCTION || process.env.ALLOW_DEMO_IN_PRODUCTION === "true");
-const BCRYPT_ROUNDS = 12;
 
 function slugify(input: string): string {
   return input
@@ -394,35 +392,37 @@ async function seedReferenceData() {
   }
 }
 
+/**
+ * Grants the ADMIN role to one address.
+ *
+ * Sign-in is passwordless, so there is no credential to seed: whoever controls
+ * this inbox becomes the administrator, and the emailed one-time code is the
+ * only thing standing between them and the moderation queue. If the address
+ * already has an account, it is promoted rather than replaced.
+ */
 async function seedAdmin() {
-  const email = process.env.SEED_ADMIN_EMAIL;
-  const password = process.env.SEED_ADMIN_PASSWORD;
+  const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
 
-  if (!email || !password) {
-    console.log(
-      "→ Administratori u anashkalua (vendosni SEED_ADMIN_EMAIL dhe SEED_ADMIN_PASSWORD)."
-    );
+  if (!email) {
+    console.log("→ Administratori u anashkalua (vendosni SEED_ADMIN_EMAIL).");
     return;
   }
 
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: "ADMIN" } });
-  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   await prisma.user.upsert({
-    where: { email: email.toLowerCase() },
-    update: { roleId: adminRole.id, passwordHash },
+    where: { email },
+    update: { roleId: adminRole.id },
     create: {
-      email: email.toLowerCase(),
+      email,
       name: "Administrator",
       username: "admin",
-      passwordHash,
       roleId: adminRole.id,
-      emailVerified: new Date(),
       profile: { create: { bio: "Administrator i platformës." } },
     },
   });
 
-  console.log(`→ Administratori u krijua: ${email}`);
+  console.log(`→ Administratori u caktua: ${email} (kyçja bëhet me kod në email)`);
 }
 
 async function seedDemoUsers() {
@@ -435,15 +435,13 @@ async function seedDemoUsers() {
   const prishtina = await prisma.municipality.findUniqueOrThrow({ where: { slug: "prishtine" } });
   const prizren = await prisma.municipality.findUniqueOrThrow({ where: { slug: "prizren" } });
 
-  // Shared demo password — documented in the README as demo-only.
-  const passwordHash = await bcrypt.hash("Demo1234", BCRYPT_ROUNDS);
-
+  // No credentials to fabricate: sign-in is passwordless, and these accounts
+  // exist only to own sample content in local development.
   const people: Prisma.UserCreateInput[] = [
     {
       email: "arta@shembull.com",
       name: "Arta Krasniqi",
       username: "arta",
-      passwordHash,
       role: { connect: { id: citizenRole.id } },
       municipality: { connect: { id: prishtina.id } },
       profile: { create: { bio: "Banore e Prishtinës. Më intereson infrastruktura urbane.", city: "Prishtinë" } },
@@ -452,7 +450,6 @@ async function seedDemoUsers() {
       email: "burim@shembull.com",
       name: "Burim Gashi",
       username: "burim",
-      passwordHash,
       role: { connect: { id: citizenRole.id } },
       municipality: { connect: { id: prizren.id } },
       profile: { create: { bio: "Aktivist qytetar në Prizren.", city: "Prizren" } },
@@ -461,7 +458,6 @@ async function seedDemoUsers() {
       email: "drilon@shembull.com",
       name: "Drilon Berisha",
       username: "drilon",
-      passwordHash,
       role: { connect: { id: citizenRole.id } },
       municipality: { connect: { id: prishtina.id } },
       profile: { create: { city: "Prishtinë" } },
@@ -470,7 +466,6 @@ async function seedDemoUsers() {
       email: "punonjes@prishtina.shembull.com",
       name: "Fatlum Rexhepi",
       username: "fatlum_pr",
-      passwordHash,
       role: { connect: { id: employeeRole.id } },
       municipality: { connect: { id: prishtina.id } },
       profile: { create: { bio: "Sektori i infrastrukturës, Komuna e Prishtinës." } },
@@ -479,7 +474,6 @@ async function seedDemoUsers() {
       email: "admin@prishtina.shembull.com",
       name: "Vjosa Hoxha",
       username: "vjosa_pr",
-      passwordHash,
       role: { connect: { id: municipalAdminRole.id } },
       municipality: { connect: { id: prishtina.id } },
       profile: { create: { bio: "Koordinatore e shërbimeve publike." } },
@@ -577,6 +571,11 @@ async function seedDemoReports(authors: { id: string }[]) {
         address: demo.address,
         status: demo.status,
         priority: demo.priority,
+        // Sample content bypasses the approval queue: it exists to give local
+        // development something to render, and a queue of thirteen fake reports
+        // would only get in the way of testing the real one.
+        moderationStatus: "APPROVED",
+        moderatedAt: createdAt,
         createdById: author.id,
         createdAt,
         viewsCount: Math.floor(Math.random() * 400) + 20,
@@ -674,7 +673,10 @@ async function main() {
     console.log("\n→ Përmbajtja demo (SEED_DEMO=true)…");
     const users = await seedDemoUsers();
     await seedDemoReports(users);
-    console.log("\n   Fjalëkalimi i llogarive demo: Demo1234");
+    console.log(
+      "\n   Kyçja bëhet me kod në email. Pa RESEND_API_KEY, serveri i zhvillimit\n" +
+        "   e shtyp kodin në terminal në vend që ta dërgojë."
+    );
   } else if (DEMO_REQUESTED) {
     console.log(
       "\n→ SEED_DEMO u injorua: përmbajtja demo nuk krijohet në prodhim.\n" +

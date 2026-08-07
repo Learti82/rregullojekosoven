@@ -3,90 +3,170 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
-import { Eye, EyeOff, LogIn } from "lucide-react";
-import { loginAction } from "@/server/actions/auth";
+import { ArrowLeft, KeyRound, Mail, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
+import { requestLoginCodeAction, verifyLoginCodeAction } from "@/server/actions/auth";
 import { fieldError } from "@/hooks/use-action-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FieldError, FormMessage } from "@/components/ui/form-error";
 
+/** Seconds before a new code may be requested, so resend cannot be spammed. */
+const RESEND_COOLDOWN = 45;
+
+/**
+ * Passwordless sign-in.
+ *
+ * Step 1 asks for the email address, step 2 for the six-digit code sent to it.
+ * The email is carried between steps in component state rather than the URL, so
+ * it never lands in browser history or a shared link.
+ */
 export function LoginForm({
   callbackUrl,
   justRegistered,
 }: {
   callbackUrl?: string;
   justRegistered?: boolean;
+  /** Pre-fills the address right after registration. */
+  presetEmail?: string;
 }) {
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(loginAction, null);
-  const [showPassword, setShowPassword] = React.useState(false);
+  const [email, setEmail] = React.useState("");
+  const [stage, setStage] = React.useState<"email" | "code">("email");
+  const [cooldown, setCooldown] = React.useState(0);
 
-  // On success the session cookie is already set; refresh so server components
-  // pick it up, then move to the requested destination.
+  const [requestState, requestAction, requesting] = useActionState(
+    requestLoginCodeAction,
+    null
+  );
+  const [verifyState, verifyAction, verifying] = useActionState(verifyLoginCodeAction, null);
+
+  // Move to the code step once a code has actually been sent.
   React.useEffect(() => {
-    if (state?.success) {
-      router.refresh();
-      router.push(state.data.redirectTo);
+    if (requestState?.success) {
+      setEmail(requestState.data.email);
+      setStage("code");
+      setCooldown(RESEND_COOLDOWN);
+      if (requestState.message) toast.success(requestState.message);
     }
-  }, [state, router]);
+  }, [requestState]);
 
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  React.useEffect(() => {
+    if (verifyState?.success) {
+      router.refresh();
+      router.push(verifyState.data.redirectTo);
+    }
+  }, [verifyState, router]);
+
+  // ------------------------------------------------------------- step 1
+  if (stage === "email") {
+    return (
+      <form action={requestAction} className="space-y-4" noValidate>
+        {justRegistered ? (
+          <FormMessage variant="success">
+            Llogaria u krijua. Shkruani email-in tuaj për të marrë kodin e kyçjes.
+          </FormMessage>
+        ) : null}
+
+        {requestState && !requestState.success ? (
+          <FormMessage>{requestState.error}</FormMessage>
+        ) : null}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoFocus
+            required
+            placeholder="ju@shembull.com"
+            defaultValue={email}
+            aria-describedby="email-error email-hint"
+            aria-invalid={Boolean(fieldError(requestState, "email"))}
+          />
+          <p id="email-hint" className="text-xs text-muted-foreground">
+            Do t&apos;ju dërgojmë një kod me 6 shifra. Nuk ka nevojë për fjalëkalim.
+          </p>
+          <FieldError id="email-error" messages={fieldError(requestState, "email")} />
+        </div>
+
+        <Button type="submit" className="w-full" size="lg" loading={requesting}>
+          <Mail /> Dërgo kodin
+        </Button>
+      </form>
+    );
+  }
+
+  // ------------------------------------------------------------- step 2
   return (
-    <form action={formAction} className="space-y-4" noValidate>
-      {justRegistered ? (
-        <FormMessage variant="success">
-          Llogaria u krijua me sukses. Kyçuni për të vazhduar.
-        </FormMessage>
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => setStage("email")}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" /> Ndrysho email-in
+      </button>
+
+      <FormMessage variant="success">
+        Kodi u dërgua te <strong>{email}</strong>. Kontrolloni edhe dosjen e spamit.
+      </FormMessage>
+
+      {verifyState && !verifyState.success ? (
+        <FormMessage>{verifyState.error}</FormMessage>
       ) : null}
 
-      {state && !state.success ? <FormMessage>{state.error}</FormMessage> : null}
+      <form action={verifyAction} className="space-y-4" noValidate>
+        <input type="hidden" name="email" value={email} />
+        <input type="hidden" name="callbackUrl" value={callbackUrl ?? ""} />
 
-      <input type="hidden" name="callbackUrl" value={callbackUrl ?? ""} />
-
-      <div className="space-y-1.5">
-        <Label htmlFor="email">Email</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          placeholder="ju@shembull.com"
-          aria-describedby="email-error"
-          aria-invalid={Boolean(fieldError(state, "email"))}
-        />
-        <FieldError id="email-error" messages={fieldError(state, "email")} />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="password">Fjalëkalimi</Label>
-        <div className="relative">
+        <div className="space-y-1.5">
+          <Label htmlFor="code">Kodi me 6 shifra</Label>
           <Input
-            id="password"
-            name="password"
-            type={showPassword ? "text" : "password"}
-            autoComplete="current-password"
+            id="code"
+            name="code"
+            inputMode="numeric"
+            // Lets phones offer the code straight from the SMS/email notification.
+            autoComplete="one-time-code"
+            autoFocus
             required
-            placeholder="••••••••"
-            className="pr-10"
-            aria-describedby="password-error"
-            aria-invalid={Boolean(fieldError(state, "password"))}
+            maxLength={7}
+            placeholder="123456"
+            className="text-center font-mono text-2xl tracking-[0.4em]"
+            aria-describedby="code-error"
+            aria-invalid={Boolean(fieldError(verifyState, "code"))}
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword((value) => !value)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground hover:text-foreground"
-            aria-label={showPassword ? "Fshih fjalëkalimin" : "Shfaq fjalëkalimin"}
-          >
-            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
+          <FieldError id="code-error" messages={fieldError(verifyState, "code")} />
         </div>
-        <FieldError id="password-error" messages={fieldError(state, "password")} />
-      </div>
 
-      <Button type="submit" className="w-full" size="lg" loading={pending}>
-        <LogIn /> Kyçu
-      </Button>
-    </form>
+        <Button type="submit" className="w-full" size="lg" loading={verifying}>
+          <KeyRound /> Kyçu
+        </Button>
+      </form>
+
+      <form action={requestAction}>
+        <input type="hidden" name="email" value={email} />
+        <Button
+          type="submit"
+          variant="ghost"
+          className="w-full"
+          disabled={cooldown > 0 || requesting}
+          loading={requesting}
+        >
+          <RotateCcw />
+          {cooldown > 0 ? `Dërgo kod të ri pas ${cooldown}s` : "Dërgo kod të ri"}
+        </Button>
+      </form>
+    </div>
   );
 }

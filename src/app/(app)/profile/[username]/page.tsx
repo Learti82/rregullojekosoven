@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Award, CalendarDays, FileText, MapPin, ThumbsUp } from "lucide-react";
+import { Award, CalendarDays, Clock, FileText, MapPin, ThumbsUp } from "lucide-react";
 import { getProfileByUsername } from "@/server/queries/users";
-import { getReports } from "@/server/queries/reports";
+import { getOwnPendingReports, getReports } from "@/server/queries/reports";
 import { getCurrentUser } from "@/lib/permissions";
 import { ROLE_LABELS } from "@/lib/constants";
 import { formatDate, formatNumber, initials } from "@/lib/utils";
@@ -49,6 +49,11 @@ export default async function ProfilePage({
 
   const viewer = await getCurrentUser();
   const isOwner = viewer?.id === profile.id;
+
+  // Submissions still in (or refused by) the approval queue are invisible in the
+  // public list below, so without this the author's own reports simply vanish
+  // after they file them.
+  const awaitingReview = isOwner ? await getOwnPendingReports(profile.id) : [];
 
   // A private profile shows only its header to everyone but its owner.
   const isPrivate = profile.profile?.isPublic === false && !isOwner;
@@ -164,6 +169,35 @@ export default async function ProfilePage({
             <h2 id="user-reports-heading" className="mb-6 font-display text-2xl font-bold tracking-tight">
               Raportet
             </h2>
+
+            {awaitingReview.length > 0 ? (
+              <div className="mb-8 rounded-xl border border-warning/40 bg-warning/5 p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <Clock className="size-4 text-warning" aria-hidden />
+                  Në pritje të miratimit ({awaitingReview.length})
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Këto raporte i shihni vetëm ju derisa administratori t&apos;i shqyrtojë.
+                </p>
+                <ul className="mt-3 divide-y">
+                  {awaitingReview.map((item) => (
+                    <li key={item.id} className="py-2.5">
+                      <Link
+                        href={`/reports/${item.slug}`}
+                        className="text-sm font-medium hover:text-primary"
+                      >
+                        {item.title}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.moderationStatus === "REJECTED"
+                          ? `Nuk u publikua — ${item.moderationNote ?? "pa arsye të dhënë"}`
+                          : "Duke u shqyrtuar"}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             {!reports || reports.items.length === 0 ? (
               <EmptyState
