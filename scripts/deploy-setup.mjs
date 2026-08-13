@@ -56,9 +56,22 @@ if (!process.env.DIRECT_DATABASE_URL?.trim()) {
   log("DIRECT_DATABASE_URL not set — falling back to DATABASE_URL.");
 }
 
+/**
+ * Both setup steps run on the direct connection.
+ *
+ * `prisma migrate deploy` already uses `directUrl` from the schema, but the seed
+ * builds its own PrismaClient and would otherwise take DATABASE_URL. On a host
+ * that fronts Postgres with a transaction pooler — Supabase's port 6543, which
+ * its own Prisma guide tells you to pin at `connection_limit=1` — a few hundred
+ * sequential upserts would then queue through a single pooled connection. The
+ * seed is a one-shot batch during a build, not serverless request traffic, so it
+ * wants the session connection the migrations already use.
+ */
+const setupEnv = { ...process.env, DATABASE_URL: process.env.DIRECT_DATABASE_URL };
+
 function run(command, label) {
   log(label);
-  execSync(command, { stdio: "inherit", env: process.env });
+  execSync(command, { stdio: "inherit", env: setupEnv });
 }
 
 try {
@@ -71,6 +84,7 @@ try {
   if (process.env.SEED_DEMO) {
     log("SEED_DEMO is set — ignoring it. Deployments never create sample data.");
     delete process.env.SEED_DEMO;
+    delete setupEnv.SEED_DEMO;
   }
   run("npx tsx prisma/seed.ts", "Seeding reference data…");
   log("Database ready.");

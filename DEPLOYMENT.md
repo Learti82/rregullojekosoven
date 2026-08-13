@@ -64,7 +64,33 @@ All three have free tiers sufficient to launch; nothing here requires a paid pla
 
 ---
 
-## 1. Database — Neon
+## 1a. Database — Supabase
+
+Supabase is used here purely as **hosted PostgreSQL**: a connection string and
+nothing else. No Supabase client, auth, storage or edge functions — the app stays
+a single Next.js application talking to Postgres through Prisma, exactly as it
+does on Neon.
+
+Two connection strings, both from **Project → Connect** in the Supabase
+dashboard. Copy them; do not assemble them by hand, as the pooler hostname
+differs per project and region.
+
+| Variable | Which string | Why |
+| --- | --- | --- |
+| `DATABASE_URL` | **Transaction pooler** (port 6543), with `?pgbouncer=true&connection_limit=1` appended | Serverless functions open a connection per invocation; the transaction pooler is what survives that. `pgbouncer=true` stops Prisma emitting prepared statements, which transaction-mode pooling does not support. |
+| `DIRECT_DATABASE_URL` | **Session pooler** (port 5432) | `prisma migrate deploy` needs a session-level connection. The build also runs the seed here, so a few hundred sequential upserts are not squeezed through `connection_limit=1`. |
+
+Do not use the **Direct connection** (`db.<ref>.supabase.co`) for either: it is
+IPv6-only unless you buy the IPv4 add-on, and Vercel's build network may not
+reach it. The session pooler is the IPv4-reachable equivalent.
+
+Replace `[YOUR-PASSWORD]` in both strings with the database password you set when
+creating the project. If you have lost it: **Settings → Database → Reset database
+password**.
+
+---
+
+## 1b. Database — Neon
 
 **Fastest path if you already deploy on Vercel:** in the project, go to
 **Storage → Create Database → Neon**. Vercel provisions a free Neon database and
